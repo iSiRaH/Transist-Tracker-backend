@@ -1,4 +1,64 @@
 const Trip = require("../models/Trip");
+const {
+  pickAllowedFields,
+  trimStringFields,
+  toNumberOrOriginal,
+} = require("../utils/sanitizeInput");
+
+const sanitizeCurrentLocation = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const location = pickAllowedFields(value, ["coordinates"]);
+
+  if (Array.isArray(location.coordinates)) {
+    location.coordinates = location.coordinates
+      .slice(0, 2)
+      .map((coordinate) => toNumberOrOriginal(coordinate));
+  }
+
+  const normalizedLocation = { type: "Point" };
+
+  if (Object.prototype.hasOwnProperty.call(location, "coordinates")) {
+    normalizedLocation.coordinates = location.coordinates;
+  }
+
+  return normalizedLocation;
+};
+
+const sanitizeTripPayload = (payload) => {
+  const sanitized = pickAllowedFields(payload, [
+    "vehicleId",
+    "routeId",
+    "driverId",
+    "status",
+    "startTime",
+    "endTime",
+    "currentLocation",
+    "speed",
+    "heading",
+    "lastUpdated",
+  ]);
+
+  const normalized = trimStringFields(sanitized, ["status"]);
+
+  if (Object.prototype.hasOwnProperty.call(normalized, "currentLocation")) {
+    normalized.currentLocation = sanitizeCurrentLocation(
+      normalized.currentLocation,
+    );
+  }
+
+  if (Object.prototype.hasOwnProperty.call(normalized, "speed")) {
+    normalized.speed = toNumberOrOriginal(normalized.speed);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(normalized, "heading")) {
+    normalized.heading = toNumberOrOriginal(normalized.heading);
+  }
+
+  return normalized;
+};
 
 const getAllTrips = async (req, res) => {
   try {
@@ -19,7 +79,8 @@ const getAllTrips = async (req, res) => {
 
 const createNewTrip = async (req, res) => {
   try {
-    const trip = await Trip.create(req.body);
+    const sanitizedPayload = sanitizeTripPayload(req.body);
+    const trip = await Trip.create(sanitizedPayload);
 
     return res.status(201).json({
       success: true,
@@ -59,7 +120,16 @@ const getTripById = async (req, res) => {
 
 const updateTripById = async (req, res) => {
   try {
-    const trip = await Trip.findByIdAndUpdate(req.params.id, req.body, {
+    const sanitizedPayload = sanitizeTripPayload(req.body);
+
+    if (Object.keys(sanitizedPayload).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update",
+      });
+    }
+
+    const trip = await Trip.findByIdAndUpdate(req.params.id, sanitizedPayload, {
       new: true,
       runValidators: true,
     });

@@ -162,30 +162,14 @@ const login = async (req, res) => {
 
 const getUserInfo = async (req, res) => {
   try {
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.split(" ")[1]
-      : null;
-
-    if (!token) {
+    if (!req.user) {
       return res.status(401).json({
         success: false,
-        message: "Authorization token is required",
+        message: "Authorization is required",
       });
     }
 
-    const secret = process.env.JWT_SECRET;
-    if (!secret) {
-      return res.status(500).json({
-        success: false,
-        message: "Server JWT configuration is missing",
-      });
-    }
-
-    const decoded = jwt.verify(token, secret);
-    const userId = decoded.id;
-
-    const user = await User.findById(userId);
+    const user = await User.findById(req.user._id);
 
     if (!user) {
       return res.status(404).json({
@@ -199,13 +183,6 @@ const getUserInfo = async (req, res) => {
       user: sanitizeUser(user),
     });
   } catch (err) {
-    if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid or expired token",
-      });
-    }
-
     return res.status(500).json({
       success: false,
       message: "Failed to get logged user info",

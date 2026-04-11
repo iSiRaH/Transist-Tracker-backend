@@ -1,4 +1,47 @@
 const LocationLog = require("../models/LocationLog");
+const {
+  pickAllowedFields,
+  toNumberOrOriginal,
+} = require("../utils/sanitizeInput");
+
+const sanitizeLocationLogPayload = (payload) => {
+  const sanitized = pickAllowedFields(payload, [
+    "tripId",
+    "vehicleId",
+    "location",
+    "speed",
+    "timestamp",
+  ]);
+
+  if (Object.prototype.hasOwnProperty.call(sanitized, "speed")) {
+    sanitized.speed = toNumberOrOriginal(sanitized.speed);
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(sanitized, "location") &&
+    sanitized.location &&
+    typeof sanitized.location === "object" &&
+    !Array.isArray(sanitized.location)
+  ) {
+    const location = pickAllowedFields(sanitized.location, ["coordinates"]);
+
+    if (Array.isArray(location.coordinates)) {
+      location.coordinates = location.coordinates
+        .slice(0, 2)
+        .map((coordinate) => toNumberOrOriginal(coordinate));
+    }
+
+    const normalizedLocation = { type: "Point" };
+
+    if (Object.prototype.hasOwnProperty.call(location, "coordinates")) {
+      normalizedLocation.coordinates = location.coordinates;
+    }
+
+    sanitized.location = normalizedLocation;
+  }
+
+  return sanitized;
+};
 
 const getAllLocationLogs = async (req, res) => {
   try {
@@ -19,7 +62,8 @@ const getAllLocationLogs = async (req, res) => {
 
 const createNewLocationLog = async (req, res) => {
   try {
-    const locationLog = await LocationLog.create(req.body);
+    const sanitizedPayload = sanitizeLocationLogPayload(req.body);
+    const locationLog = await LocationLog.create(sanitizedPayload);
 
     return res.status(201).json({
       success: true,
@@ -59,9 +103,18 @@ const getLocationLogById = async (req, res) => {
 
 const updateLocationLogById = async (req, res) => {
   try {
+    const sanitizedPayload = sanitizeLocationLogPayload(req.body);
+
+    if (Object.keys(sanitizedPayload).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update",
+      });
+    }
+
     const locationLog = await LocationLog.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      sanitizedPayload,
       {
         new: true,
         runValidators: true,

@@ -1,4 +1,27 @@
 const Notification = require("../models/Notification");
+const {
+  pickAllowedFields,
+  trimStringFields,
+  toBooleanOrOriginal,
+} = require("../utils/sanitizeInput");
+
+const sanitizeNotificationPayload = (payload) => {
+  const sanitized = pickAllowedFields(payload, [
+    "userId",
+    "title",
+    "message",
+    "type",
+    "isRead",
+  ]);
+
+  const normalized = trimStringFields(sanitized, ["title", "message", "type"]);
+
+  if (Object.prototype.hasOwnProperty.call(normalized, "isRead")) {
+    normalized.isRead = toBooleanOrOriginal(normalized.isRead);
+  }
+
+  return normalized;
+};
 
 const getAllNotifications = async (req, res) => {
   try {
@@ -19,7 +42,8 @@ const getAllNotifications = async (req, res) => {
 
 const createNewNotification = async (req, res) => {
   try {
-    const notification = await Notification.create(req.body);
+    const sanitizedPayload = sanitizeNotificationPayload(req.body);
+    const notification = await Notification.create(sanitizedPayload);
 
     return res.status(201).json({
       success: true,
@@ -59,9 +83,18 @@ const getNotificationById = async (req, res) => {
 
 const updateNotificationById = async (req, res) => {
   try {
+    const sanitizedPayload = sanitizeNotificationPayload(req.body);
+
+    if (Object.keys(sanitizedPayload).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update",
+      });
+    }
+
     const notification = await Notification.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      sanitizedPayload,
       {
         new: true,
         runValidators: true,

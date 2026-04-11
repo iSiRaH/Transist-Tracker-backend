@@ -1,4 +1,8 @@
 const Favorite = require("../models/Favorite");
+const { pickAllowedFields } = require("../utils/sanitizeInput");
+
+const sanitizeFavoritePayload = (payload) =>
+  pickAllowedFields(payload, ["userId", "routeId"]);
 
 const getAllFavorites = async (req, res) => {
   try {
@@ -19,7 +23,8 @@ const getAllFavorites = async (req, res) => {
 
 const createNewFavorite = async (req, res) => {
   try {
-    const favorite = await Favorite.create(req.body);
+    const sanitizedPayload = sanitizeFavoritePayload(req.body);
+    const favorite = await Favorite.create(sanitizedPayload);
 
     return res.status(201).json({
       success: true,
@@ -59,10 +64,23 @@ const getFavoriteById = async (req, res) => {
 
 const updateFavoriteById = async (req, res) => {
   try {
-    const favorite = await Favorite.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const sanitizedPayload = sanitizeFavoritePayload(req.body);
+
+    if (Object.keys(sanitizedPayload).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update",
+      });
+    }
+
+    const favorite = await Favorite.findByIdAndUpdate(
+      req.params.id,
+      sanitizedPayload,
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
 
     if (!favorite) {
       return res.status(404).json({

@@ -1,4 +1,36 @@
 const User = require("../models/User");
+const {
+  pickAllowedFields,
+  trimStringFields,
+  toBooleanOrOriginal,
+} = require("../utils/sanitizeInput");
+
+const sanitizeUserPayload = (payload) => {
+  const sanitized = pickAllowedFields(payload, [
+    "name",
+    "email",
+    "password",
+    "role",
+    "phone",
+    "profileImage",
+    "isActive",
+  ]);
+
+  const normalized = trimStringFields(sanitized, [
+    "name",
+    "email",
+    "password",
+    "role",
+    "phone",
+    "profileImage",
+  ]);
+
+  if (Object.prototype.hasOwnProperty.call(normalized, "isActive")) {
+    normalized.isActive = toBooleanOrOriginal(normalized.isActive);
+  }
+
+  return normalized;
+};
 
 const getAllUsers = async (req, res) => {
   try {
@@ -19,7 +51,8 @@ const getAllUsers = async (req, res) => {
 
 const createNewUser = async (req, res) => {
   try {
-    const user = await User.create(req.body);
+    const sanitizedPayload = sanitizeUserPayload(req.body);
+    const user = await User.create(sanitizedPayload);
 
     return res.status(201).json({
       success: true,
@@ -59,6 +92,15 @@ const getUserById = async (req, res) => {
 
 const updateUserById = async (req, res) => {
   try {
+    const sanitizedPayload = sanitizeUserPayload(req.body);
+
+    if (Object.keys(sanitizedPayload).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid fields provided for update",
+      });
+    }
+
     const user = await User.findById(req.params.id).select("+password");
 
     if (!user) {
@@ -68,7 +110,7 @@ const updateUserById = async (req, res) => {
       });
     }
 
-    Object.assign(user, req.body);
+    Object.assign(user, sanitizedPayload);
     await user.save();
 
     return res.status(200).json({
