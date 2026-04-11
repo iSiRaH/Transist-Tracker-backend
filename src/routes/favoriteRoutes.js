@@ -6,13 +6,14 @@ const {
   updateFavoriteById,
   deleteFavoriteById,
 } = require("../controllers/favoriteController");
+const { authorizeRoles } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-router.get("/", getAllFavorites);
-router.post("/", createNewFavorite);
-router.get("/:id", getFavoriteById);
-router.put("/:id", updateFavoriteById);
-router.delete("/:id", deleteFavoriteById);
+router.get("/", authorizeRoles("user", "admin"), getAllFavorites);
+router.post("/", authorizeRoles("user", "admin"), createNewFavorite);
+router.get("/:id", authorizeRoles("user", "admin"), getFavoriteById);
+router.put("/:id", authorizeRoles("user", "admin"), updateFavoriteById);
+router.delete("/:id", authorizeRoles("user", "admin"), deleteFavoriteById);
 
 module.exports = router;

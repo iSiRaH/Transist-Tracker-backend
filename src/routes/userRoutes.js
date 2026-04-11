@@ -6,8 +6,11 @@ const {
   updateUserById,
   deleteUserById,
 } = require("../controllers/userController");
+const { authorizeRoles } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
+
+router.use(authorizeRoles("admin"));
 
 router.get("/", getAllUsers);
 router.post("/", createNewUser);

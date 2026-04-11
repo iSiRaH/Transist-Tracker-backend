@@ -1,4 +1,5 @@
 const express = require("express");
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 
@@ -12,48 +13,96 @@ const tripRoutes = require("./routes/tripRoutes");
 const favoriteRoutes = require("./routes/favoriteRoutes");
 const locationLogRoutes = require("./routes/locationLogRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
-const { createRateLimiter } = require("./middlewares/rateLimiter");
 
 app.use(express.json());
 
-const authRateLimiter = createRateLimiter({
+const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
-  message: "Too many authentication attempts. Please try again later.",
-});
-
-const protectedRouteRateLimiter = createRateLimiter({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  message: "Too many requests. Please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many authentication attempts. Please try again later.",
+  },
 });
 
 app.use("/api/v1", healthCheck);
 app.use("/api/v1/auth", authRateLimiter, authRoutes);
 app.use(
   "/api/v1/vehicles",
-  protectedRouteRateLimiter,
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
   requireAuth,
   vehicleRoutes,
 );
-app.use("/api/v1/users", protectedRouteRateLimiter, requireAuth, userRoutes);
-app.use("/api/v1/routes", protectedRouteRateLimiter, requireAuth, routeRoutes);
-app.use("/api/v1/trips", protectedRouteRateLimiter, requireAuth, tripRoutes);
+app.use(
+  "/api/v1/users",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+  requireAuth,
+  userRoutes,
+);
+app.use(
+  "/api/v1/routes",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+  requireAuth,
+  routeRoutes,
+);
+app.use(
+  "/api/v1/trips",
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+  requireAuth,
+  tripRoutes,
+);
 app.use(
   "/api/v1/favorites",
-  protectedRouteRateLimiter,
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
   requireAuth,
   favoriteRoutes,
 );
 app.use(
   "/api/v1/location-logs",
-  protectedRouteRateLimiter,
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
   requireAuth,
   locationLogRoutes,
 );
 app.use(
   "/api/v1/notifications",
-  protectedRouteRateLimiter,
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
   requireAuth,
   notificationRoutes,
 );

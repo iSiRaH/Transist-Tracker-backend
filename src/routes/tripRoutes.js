@@ -6,13 +6,14 @@ const {
   updateTripById,
   deleteTripById,
 } = require("../controllers/tripController");
+const { authorizeRoles } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-router.get("/", getAllTrips);
-router.post("/", createNewTrip);
-router.get("/:id", getTripById);
-router.put("/:id", updateTripById);
-router.delete("/:id", deleteTripById);
+router.get("/", authorizeRoles("user", "driver", "admin"), getAllTrips);
+router.post("/", authorizeRoles("driver", "admin"), createNewTrip);
+router.get("/:id", authorizeRoles("user", "driver", "admin"), getTripById);
+router.put("/:id", authorizeRoles("driver", "admin"), updateTripById);
+router.delete("/:id", authorizeRoles("admin"), deleteTripById);
 
 module.exports = router;

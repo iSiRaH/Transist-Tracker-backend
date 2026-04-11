@@ -6,13 +6,14 @@ const {
   updateLocationLogById,
   deleteLocationLogById,
 } = require("../controllers/locationLogController");
+const { authorizeRoles } = require("../middlewares/authMiddleware");
 
 const router = express.Router();
 
-router.get("/", getAllLocationLogs);
-router.post("/", createNewLocationLog);
-router.get("/:id", getLocationLogById);
-router.put("/:id", updateLocationLogById);
-router.delete("/:id", deleteLocationLogById);
+router.get("/", authorizeRoles("driver", "admin"), getAllLocationLogs);
+router.post("/", authorizeRoles("driver", "admin"), createNewLocationLog);
+router.get("/:id", authorizeRoles("driver", "admin"), getLocationLogById);
+router.put("/:id", authorizeRoles("driver", "admin"), updateLocationLogById);
+router.delete("/:id", authorizeRoles("admin"), deleteLocationLogById);
 
 module.exports = router;

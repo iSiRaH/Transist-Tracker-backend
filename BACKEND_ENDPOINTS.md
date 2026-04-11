@@ -89,3 +89,26 @@ Authorization for protected endpoints:
 | GET    | `/api/v1/notifications/:id` | Get notification by id    | Bearer token |
 | PUT    | `/api/v1/notifications/:id` | Update notification by id | Bearer token |
 | DELETE | `/api/v1/notifications/:id` | Delete notification by id | Bearer token |
+
+## Role-Based Access Rules
+
+Roles: `user`, `driver`, `admin`
+
+- Users endpoints (`/api/v1/users/*`): `admin`
+- Vehicles endpoints (`/api/v1/vehicles/*`):
+  - `GET`: `user`, `driver`, `admin`
+  - `POST`, `PUT`, `DELETE`: `admin`
+- Routes endpoints (`/api/v1/routes/*`):
+  - `GET`: `user`, `driver`, `admin`
+  - `POST`, `PUT`, `DELETE`: `admin`
+- Trips endpoints (`/api/v1/trips/*`):
+  - `GET`: `user`, `driver`, `admin`
+  - `POST`, `PUT`: `driver`, `admin`
+  - `DELETE`: `admin`
+- Location logs endpoints (`/api/v1/location-logs/*`):
+  - `GET`, `POST`, `PUT`: `driver`, `admin`
+  - `DELETE`: `admin`
+- Favorites endpoints (`/api/v1/favorites/*`): `user`, `admin`
+- Notifications endpoints (`/api/v1/notifications/*`):
+  - `GET`, `PUT`: `user`, `driver`, `admin`
+  - `POST`, `DELETE`: `admin`
