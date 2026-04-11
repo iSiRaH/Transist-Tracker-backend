@@ -1,19 +1,21 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
+const extractBearerToken = (authorizationHeader) => {
+  if (typeof authorizationHeader !== "string") {
+    return null;
+  }
+
+  const match = authorizationHeader.match(
+    /^Bearer\s+([A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+)$/,
+  );
+
+  return match ? match[1] : null;
+};
+
 const requireAuth = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.startsWith("Bearer ")
-      ? authHeader.split(" ")[1]
-      : null;
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: "Authorization token is required",
-      });
-    }
+    const token = extractBearerToken(req.headers.authorization) || "invalid";
 
     const secret = process.env.JWT_SECRET;
     if (!secret) {
@@ -23,10 +25,25 @@ const requireAuth = async (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, secret);
+    const allowedAlgorithms = (process.env.JWT_ALGORITHMS || "HS256")
+      .split(",")
+      .map((algorithm) => algorithm.trim())
+      .filter(Boolean);
+
+    const decoded = jwt.verify(token, secret, {
+      algorithms: allowedAlgorithms,
+    });
+
+    if (!decoded || !decoded.id) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired token",
+      });
+    }
+
     const user = await User.findById(decoded.id);
 
-    if (!user) {
+    if (!user || user.isActive === false) {
       return res.status(401).json({
         success: false,
         message: "Invalid or expired token",
