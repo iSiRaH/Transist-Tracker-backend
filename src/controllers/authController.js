@@ -16,6 +16,10 @@ const sanitizeUser = (user) => ({
   id: user._id,
   name: user.name,
   email: user.email,
+  role: user.role,
+  phone: user.phone,
+  profileImage: user.profileImage,
+  isActive: user.isActive,
 });
 
 const isValidEmail = (email) => {
@@ -156,7 +160,38 @@ const login = async (req, res) => {
   }
 };
 
+const getUserInfo = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Authorization is required",
+      });
+    }
+
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user: sanitizeUser(user),
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get logged user info",
+    });
+  }
+};
+
 module.exports = {
   signup,
   login,
+  getUserInfo,
 };

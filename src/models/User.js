@@ -21,9 +21,29 @@ const userSchema = new mongoose.Schema(
       minlength: 6,
       select: false,
     },
+    role: {
+      type: String,
+      enum: ["user", "driver", "admin"],
+      default: "user",
+      index: true,
+    },
+    phone: {
+      type: String,
+      trim: true,
+    },
+    profileImage: {
+      type: String,
+      trim: true,
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
   },
   {
     timestamps: true,
+    collection: "users",
   },
 );
 
