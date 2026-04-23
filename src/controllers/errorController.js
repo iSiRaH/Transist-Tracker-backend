@@ -6,7 +6,8 @@ const handleCastErrorDB = (err) => {
 };
 
 const handleDuplicateFieldsDB = (err) => {
-  const matchedValue = err.message && err.message.match(/(["'])(\\?.)*?\1/);
+  const matchedValue =
+    err.message && err.message.match(/(["'])(?:\\.|(?!\1)[^\\])*?\1/);
 
   const duplicateValue =
     (err.keyValue && Object.values(err.keyValue)[0]) ||
