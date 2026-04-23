@@ -36,7 +36,7 @@ const requireAuth = catchAsync(async (req, res, next) => {
     return next(new AppError('Invalid or expired token', 401));
   }
 
-  const user = await User.findById(decoded.id);
+  const user = await User.findById(decoded.id).select('+isActive');
 
   if (!user || user.isActive === false) {
     return next(new AppError('Invalid or expired token', 401));
