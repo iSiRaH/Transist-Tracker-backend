@@ -1,29 +1,31 @@
-const LocationLog = require("../models/LocationLog");
+const LocationLog = require('../models/LocationLog');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
 const {
   pickAllowedFields,
   toNumberOrOriginal,
-} = require("../utils/sanitizeInput");
+} = require('../utils/sanitizeInput');
 
 const sanitizeLocationLogPayload = (payload) => {
   const sanitized = pickAllowedFields(payload, [
-    "tripId",
-    "vehicleId",
-    "location",
-    "speed",
-    "timestamp",
+    'tripId',
+    'vehicleId',
+    'location',
+    'speed',
+    'timestamp',
   ]);
 
-  if (Object.prototype.hasOwnProperty.call(sanitized, "speed")) {
+  if (Object.prototype.hasOwnProperty.call(sanitized, 'speed')) {
     sanitized.speed = toNumberOrOriginal(sanitized.speed);
   }
 
   if (
-    Object.prototype.hasOwnProperty.call(sanitized, "location") &&
+    Object.prototype.hasOwnProperty.call(sanitized, 'location') &&
     sanitized.location &&
-    typeof sanitized.location === "object" &&
+    typeof sanitized.location === 'object' &&
     !Array.isArray(sanitized.location)
   ) {
-    const location = pickAllowedFields(sanitized.location, ["coordinates"]);
+    const location = pickAllowedFields(sanitized.location, ['coordinates']);
 
     if (Array.isArray(location.coordinates)) {
       location.coordinates = location.coordinates
@@ -31,9 +33,9 @@ const sanitizeLocationLogPayload = (payload) => {
         .map((coordinate) => toNumberOrOriginal(coordinate));
     }
 
-    const normalizedLocation = { type: "Point" };
+    const normalizedLocation = { type: 'Point' };
 
-    if (Object.prototype.hasOwnProperty.call(location, "coordinates")) {
+    if (Object.prototype.hasOwnProperty.call(location, 'coordinates')) {
       normalizedLocation.coordinates = location.coordinates;
     }
 
@@ -43,126 +45,79 @@ const sanitizeLocationLogPayload = (payload) => {
   return sanitized;
 };
 
-const getAllLocationLogs = async (req, res) => {
-  try {
-    const locationLogs = await LocationLog.find().sort({ timestamp: -1 });
+const getAllLocationLogs = catchAsync(async (req, res) => {
+  const locationLogs = await LocationLog.find().sort({ timestamp: -1 });
 
-    return res.status(200).json({
-      success: true,
-      count: locationLogs.length,
-      locationLogs,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch location logs",
-    });
+  return res.status(200).json({
+    success: true,
+    count: locationLogs.length,
+    locationLogs,
+  });
+});
+
+const createNewLocationLog = catchAsync(async (req, res) => {
+  const sanitizedPayload = sanitizeLocationLogPayload(req.body);
+  const locationLog = await LocationLog.create(sanitizedPayload);
+
+  return res.status(201).json({
+    success: true,
+    message: 'Location log created successfully',
+    locationLog,
+  });
+});
+
+const getLocationLogById = catchAsync(async (req, res, next) => {
+  const locationLog = await LocationLog.findById(req.params.id);
+
+  if (!locationLog) {
+    return next(new AppError('Location log not found', 404));
   }
-};
 
-const createNewLocationLog = async (req, res) => {
-  try {
-    const sanitizedPayload = sanitizeLocationLogPayload(req.body);
-    const locationLog = await LocationLog.create(sanitizedPayload);
+  return res.status(200).json({
+    success: true,
+    locationLog,
+  });
+});
 
-    return res.status(201).json({
-      success: true,
-      message: "Location log created successfully",
-      locationLog,
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Failed to create location log",
-    });
+const updateLocationLogById = catchAsync(async (req, res, next) => {
+  const sanitizedPayload = sanitizeLocationLogPayload(req.body);
+
+  if (Object.keys(sanitizedPayload).length === 0) {
+    return next(new AppError('No valid fields provided for update', 400));
   }
-};
 
-const getLocationLogById = async (req, res) => {
-  try {
-    const locationLog = await LocationLog.findById(req.params.id);
+  const locationLog = await LocationLog.findByIdAndUpdate(
+    req.params.id,
+    sanitizedPayload,
+    {
+      new: true,
+      runValidators: true,
+    },
+  );
 
-    if (!locationLog) {
-      return res.status(404).json({
-        success: false,
-        message: "Location log not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      locationLog,
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid location log id",
-    });
+  if (!locationLog) {
+    return next(new AppError('Location log not found', 404));
   }
-};
 
-const updateLocationLogById = async (req, res) => {
-  try {
-    const sanitizedPayload = sanitizeLocationLogPayload(req.body);
+  return res.status(200).json({
+    success: true,
+    message: 'Location log updated successfully',
+    locationLog,
+  });
+});
 
-    if (Object.keys(sanitizedPayload).length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No valid fields provided for update",
-      });
-    }
+const deleteLocationLogById = catchAsync(async (req, res, next) => {
+  const locationLog = await LocationLog.findByIdAndDelete(req.params.id);
 
-    const locationLog = await LocationLog.findByIdAndUpdate(
-      req.params.id,
-      sanitizedPayload,
-      {
-        new: true,
-        runValidators: true,
-      },
-    );
-
-    if (!locationLog) {
-      return res.status(404).json({
-        success: false,
-        message: "Location log not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Location log updated successfully",
-      locationLog,
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Failed to update location log",
-    });
+  if (!locationLog) {
+    return next(new AppError('Location log not found', 404));
   }
-};
 
-const deleteLocationLogById = async (req, res) => {
-  try {
-    const locationLog = await LocationLog.findByIdAndDelete(req.params.id);
-
-    if (!locationLog) {
-      return res.status(404).json({
-        success: false,
-        message: "Location log not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Location log deleted successfully",
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Failed to delete location log",
-    });
-  }
-};
+  return res.status(200).json({
+    success: true,
+    message: 'Location log deleted successfully',
+  });
+});
 
 module.exports = {
   getAllLocationLogs,

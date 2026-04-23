@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const vehicleSchema = new mongoose.Schema(
   {
@@ -12,13 +12,13 @@ const vehicleSchema = new mongoose.Schema(
     },
     routeId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Route",
+      ref: 'Route',
       required: true,
       index: true,
     },
     driverId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
       index: true,
     },
@@ -29,8 +29,8 @@ const vehicleSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["bus", "train"],
-      default: "bus",
+      enum: ['bus', 'train'],
+      default: 'bus',
       index: true,
     },
     isActive: {
@@ -41,8 +41,8 @@ const vehicleSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    collection: "vehicles",
+    collection: 'vehicles',
   },
 );
 
-module.exports = mongoose.model("Vehicle", vehicleSchema);
+module.exports = mongoose.model('Vehicle', vehicleSchema);

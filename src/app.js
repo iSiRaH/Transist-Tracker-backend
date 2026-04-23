@@ -1,20 +1,28 @@
-const express = require("express");
-const rateLimit = require("express-rate-limit");
+const express = require('express');
+const rateLimit = require('express-rate-limit');
+const morgan = require('morgan');
 
 const app = express();
 
-const healthCheck = require("./routes/healthCheck");
-const authRoutes = require("./routes/authRoutes");
-const { requireAuth } = require("./middlewares/authMiddleware");
-const vehicleRoutes = require("./routes/vehicleRoutes");
-const userRoutes = require("./routes/userRoutes");
-const routeRoutes = require("./routes/routeRoutes");
-const tripRoutes = require("./routes/tripRoutes");
-const favoriteRoutes = require("./routes/favoriteRoutes");
-const locationLogRoutes = require("./routes/locationLogRoutes");
-const notificationRoutes = require("./routes/notificationRoutes");
+const healthCheck = require('./routes/healthCheck');
+const authRoutes = require('./routes/authRoutes');
+const { requireAuth } = require('./middlewares/authMiddleware');
+const vehicleRoutes = require('./routes/vehicleRoutes');
+const userRoutes = require('./routes/userRoutes');
+const routeRoutes = require('./routes/routeRoutes');
+const tripRoutes = require('./routes/tripRoutes');
+const favoriteRoutes = require('./routes/favoriteRoutes');
+const locationLogRoutes = require('./routes/locationLogRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const globalErrorHandler = require('./controllers/errorController');
+const AppError = require('./utils/appError');
 
 app.use(express.json());
+app.set('query_parser', 'extended');
+
+if (process.env.NODE_env === 'development') {
+  app.use(morgan('dev'));
+}
 
 const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -23,14 +31,14 @@ const authRateLimiter = rateLimit({
   legacyHeaders: false,
   message: {
     success: false,
-    message: "Too many authentication attempts. Please try again later.",
+    message: 'Too many authentication attempts. Please try again later.',
   },
 });
 
-app.use("/api/v1", healthCheck);
-app.use("/api/v1/auth", authRateLimiter, authRoutes);
+app.use('/api/v1', healthCheck);
+app.use('/api/v1/auth', authRateLimiter, authRoutes);
 app.use(
-  "/api/v1/vehicles",
+  '/api/v1/vehicles',
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 200,
@@ -41,7 +49,7 @@ app.use(
   vehicleRoutes,
 );
 app.use(
-  "/api/v1/users",
+  '/api/v1/users',
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 200,
@@ -52,7 +60,7 @@ app.use(
   userRoutes,
 );
 app.use(
-  "/api/v1/routes",
+  '/api/v1/routes',
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 200,
@@ -63,7 +71,7 @@ app.use(
   routeRoutes,
 );
 app.use(
-  "/api/v1/trips",
+  '/api/v1/trips',
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 200,
@@ -74,7 +82,7 @@ app.use(
   tripRoutes,
 );
 app.use(
-  "/api/v1/favorites",
+  '/api/v1/favorites',
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 200,
@@ -85,7 +93,7 @@ app.use(
   favoriteRoutes,
 );
 app.use(
-  "/api/v1/location-logs",
+  '/api/v1/location-logs',
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 200,
@@ -96,7 +104,7 @@ app.use(
   locationLogRoutes,
 );
 app.use(
-  "/api/v1/notifications",
+  '/api/v1/notifications',
   rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 200,
@@ -106,5 +114,11 @@ app.use(
   requireAuth,
   notificationRoutes,
 );
+
+app.all('/{*any}', (req, res, next) => {
+  next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
+});
+
+app.use(globalErrorHandler);
 
 module.exports = app;

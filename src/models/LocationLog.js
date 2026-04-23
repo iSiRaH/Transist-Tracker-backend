@@ -1,11 +1,11 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const pointSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ["Point"],
-      default: "Point",
+      enum: ['Point'],
+      default: 'Point',
       required: true,
     },
     coordinates: {
@@ -15,7 +15,7 @@ const pointSchema = new mongoose.Schema(
         validator(value) {
           return Array.isArray(value) && value.length === 2;
         },
-        message: "Coordinates must be [lng, lat]",
+        message: 'Coordinates must be [lng, lat]',
       },
     },
   },
@@ -26,13 +26,13 @@ const locationLogSchema = new mongoose.Schema(
   {
     tripId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Trip",
+      ref: 'Trip',
       required: true,
       index: true,
     },
     vehicleId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Vehicle",
+      ref: 'Vehicle',
       required: true,
       index: true,
     },
@@ -52,11 +52,11 @@ const locationLogSchema = new mongoose.Schema(
     },
   },
   {
-    collection: "location_logs",
+    collection: 'location_logs',
   },
 );
 
-locationLogSchema.index({ location: "2dsphere" });
+locationLogSchema.index({ location: '2dsphere' });
 
 const ttlDays = Number(process.env.LOCATION_LOG_TTL_DAYS || 0);
 if (Number.isFinite(ttlDays) && ttlDays > 0) {
@@ -66,4 +66,4 @@ if (Number.isFinite(ttlDays) && ttlDays > 0) {
   );
 }
 
-module.exports = mongoose.model("LocationLog", locationLogSchema);
+module.exports = mongoose.model('LocationLog', locationLogSchema);

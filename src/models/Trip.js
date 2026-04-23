@@ -1,11 +1,11 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const pointSchema = new mongoose.Schema(
   {
     type: {
       type: String,
-      enum: ["Point"],
-      default: "Point",
+      enum: ['Point'],
+      default: 'Point',
       required: true,
     },
     coordinates: {
@@ -15,7 +15,7 @@ const pointSchema = new mongoose.Schema(
         validator(value) {
           return Array.isArray(value) && value.length === 2;
         },
-        message: "Coordinates must be [lng, lat]",
+        message: 'Coordinates must be [lng, lat]',
       },
     },
   },
@@ -26,26 +26,26 @@ const tripSchema = new mongoose.Schema(
   {
     vehicleId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Vehicle",
+      ref: 'Vehicle',
       required: true,
       index: true,
     },
     routeId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Route",
+      ref: 'Route',
       required: true,
       index: true,
     },
     driverId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: 'User',
       required: true,
       index: true,
     },
     status: {
       type: String,
-      enum: ["active", "completed", "cancelled", "paused"],
-      default: "active",
+      enum: ['active', 'completed', 'cancelled', 'paused'],
+      default: 'active',
       index: true,
     },
     startTime: {
@@ -79,11 +79,11 @@ const tripSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    collection: "trips",
+    collection: 'trips',
   },
 );
 
-tripSchema.index({ currentLocation: "2dsphere" });
+tripSchema.index({ currentLocation: '2dsphere' });
 tripSchema.index({ status: 1, lastUpdated: -1 });
 
-module.exports = mongoose.model("Trip", tripSchema);
+module.exports = mongoose.model('Trip', tripSchema);

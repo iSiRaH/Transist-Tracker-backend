@@ -1,5 +1,5 @@
 const toPlainObject = (value) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
   }
 
@@ -26,7 +26,7 @@ const trimStringFields = (payload, fields) => {
   });
 
   fields.forEach((field) => {
-    if (typeof sanitized[field] === "string") {
+    if (typeof sanitized[field] === 'string') {
       sanitized[field] = sanitized[field].trim();
     }
   });
@@ -35,13 +35,13 @@ const trimStringFields = (payload, fields) => {
 };
 
 const toNumberOrOriginal = (value) => {
-  if (typeof value === "number") {
+  if (typeof value === 'number') {
     return value;
   }
 
-  if (typeof value === "string") {
+  if (typeof value === 'string') {
     const trimmed = value.trim();
-    if (trimmed === "") {
+    if (trimmed === '') {
       return value;
     }
 
@@ -55,16 +55,16 @@ const toNumberOrOriginal = (value) => {
 };
 
 const toBooleanOrOriginal = (value) => {
-  if (typeof value === "boolean") {
+  if (typeof value === 'boolean') {
     return value;
   }
 
-  if (typeof value === "string") {
+  if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase();
-    if (normalized === "true") {
+    if (normalized === 'true') {
       return true;
     }
-    if (normalized === "false") {
+    if (normalized === 'false') {
       return false;
     }
   }

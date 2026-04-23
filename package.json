@@ -9,15 +9,21 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node src/server.js",
-    "start:dev": "nodemon src/server.js"
+    "start:dev": "nodemon src/server.js",
+    "start:prod": "NODE_ENV=production nodemon src/server.js"
+  },
+  "engines": {
+    "node": ">=10.0.0"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "dotenv": "^17.3.1",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.10.0"
+    "mongoose": "^8.10.0",
+    "morgan": "^1.10.1",
+    "validator": "^13.15.35"
   },
   "devDependencies": {
     "eslint": "^8.57.1",
