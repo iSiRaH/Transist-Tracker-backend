@@ -20,7 +20,7 @@ const AppError = require('./utils/appError');
 app.use(express.json());
 app.set('query_parser', 'extended');
 
-if (process.env.NODE_env === 'development') {
+if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
