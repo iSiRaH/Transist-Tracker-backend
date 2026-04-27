@@ -1,153 +1,108 @@
-const User = require("../models/User");
+const User = require('../models/User');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
 const {
   pickAllowedFields,
   trimStringFields,
   toBooleanOrOriginal,
-} = require("../utils/sanitizeInput");
+} = require('../utils/sanitizeInput');
 
 const sanitizeUserPayload = (payload) => {
   const sanitized = pickAllowedFields(payload, [
-    "name",
-    "email",
-    "password",
-    "role",
-    "phone",
-    "profileImage",
-    "isActive",
+    'name',
+    'email',
+    'password',
+    'role',
+    'phone',
+    'profileImage',
+    'isActive',
   ]);
 
   const normalized = trimStringFields(sanitized, [
-    "name",
-    "email",
-    "password",
-    "role",
-    "phone",
-    "profileImage",
+    'name',
+    'email',
+    'password',
+    'role',
+    'phone',
+    'profileImage',
   ]);
 
-  if (Object.prototype.hasOwnProperty.call(normalized, "isActive")) {
+  if (Object.prototype.hasOwnProperty.call(normalized, 'isActive')) {
     normalized.isActive = toBooleanOrOriginal(normalized.isActive);
   }
 
   return normalized;
 };
 
-const getAllUsers = async (req, res) => {
-  try {
-    const users = await User.find().sort({ createdAt: -1 });
+const getAllUsers = catchAsync(async (req, res) => {
+  const users = await User.find().sort({ createdAt: -1 });
 
-    return res.status(200).json({
-      success: true,
-      count: users.length,
-      users,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch users",
-    });
+  return res.status(200).json({
+    success: true,
+    count: users.length,
+    users,
+  });
+});
+
+const createNewUser = catchAsync(async (req, res) => {
+  const sanitizedPayload = sanitizeUserPayload(req.body);
+  const user = await User.create(sanitizedPayload);
+
+  return res.status(201).json({
+    success: true,
+    message: 'User created successfully',
+    user,
+  });
+});
+
+const getUserById = catchAsync(async (req, res, next) => {
+  const user = await User.findById(req.params.id);
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
   }
-};
 
-const createNewUser = async (req, res) => {
-  try {
-    const sanitizedPayload = sanitizeUserPayload(req.body);
-    const user = await User.create(sanitizedPayload);
+  return res.status(200).json({
+    success: true,
+    user,
+  });
+});
 
-    return res.status(201).json({
-      success: true,
-      message: "User created successfully",
-      user,
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Failed to create user",
-    });
+const updateUserById = catchAsync(async (req, res, next) => {
+  const sanitizedPayload = sanitizeUserPayload(req.body);
+
+  if (Object.keys(sanitizedPayload).length === 0) {
+    return next(new AppError('No valid fields provided for update', 400));
   }
-};
 
-const getUserById = async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id);
+  const user = await User.findById(req.params.id).select('+password');
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      user,
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid user id",
-    });
+  if (!user) {
+    return next(new AppError('User not found', 404));
   }
-};
 
-const updateUserById = async (req, res) => {
-  try {
-    const sanitizedPayload = sanitizeUserPayload(req.body);
+  Object.assign(user, sanitizedPayload);
+  await user.save();
 
-    if (Object.keys(sanitizedPayload).length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No valid fields provided for update",
-      });
-    }
+  return res.status(200).json({
+    success: true,
+    message: 'User updated successfully',
+    user,
+  });
+});
 
-    const user = await User.findById(req.params.id).select("+password");
+const deleteUserById = catchAsync(async (req, res, next) => {
+  const user = await User.findByIdAndDelete(req.params.id);
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    Object.assign(user, sanitizedPayload);
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "User updated successfully",
-      user,
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Failed to update user",
-    });
+  if (!user) {
+    return next(new AppError('User not found', 404));
   }
-};
 
-const deleteUserById = async (req, res) => {
-  try {
-    const user = await User.findByIdAndDelete(req.params.id);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "User deleted successfully",
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Failed to delete user",
-    });
-  }
-};
+  return res.status(200).json({
+    success: true,
+    message: 'User deleted successfully',
+  });
+});
 
 module.exports = {
   getAllUsers,

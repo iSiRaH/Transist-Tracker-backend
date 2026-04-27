@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const stopSchema = new mongoose.Schema(
   {
@@ -90,10 +90,10 @@ const routeSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    collection: "routes",
+    collection: 'routes',
   },
 );
 
 routeSchema.index({ routeNumber: 1, isActive: 1 });
 
-module.exports = mongoose.model("Route", routeSchema);
+module.exports = mongoose.model('Route', routeSchema);

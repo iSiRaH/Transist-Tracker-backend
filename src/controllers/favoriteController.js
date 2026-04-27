@@ -1,129 +1,84 @@
-const Favorite = require("../models/Favorite");
-const { pickAllowedFields } = require("../utils/sanitizeInput");
+const Favorite = require('../models/Favorite');
+const catchAsync = require('../utils/catchAsync');
+const AppError = require('../utils/appError');
+const { pickAllowedFields } = require('../utils/sanitizeInput');
 
 const sanitizeFavoritePayload = (payload) =>
-  pickAllowedFields(payload, ["userId", "routeId"]);
+  pickAllowedFields(payload, ['userId', 'routeId']);
 
-const getAllFavorites = async (req, res) => {
-  try {
-    const favorites = await Favorite.find().sort({ createdAt: -1 });
+const getAllFavorites = catchAsync(async (req, res) => {
+  const favorites = await Favorite.find().sort({ createdAt: -1 });
 
-    return res.status(200).json({
-      success: true,
-      count: favorites.length,
-      favorites,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch favorites",
-    });
+  return res.status(200).json({
+    success: true,
+    count: favorites.length,
+    favorites,
+  });
+});
+
+const createNewFavorite = catchAsync(async (req, res) => {
+  const sanitizedPayload = sanitizeFavoritePayload(req.body);
+  const favorite = await Favorite.create(sanitizedPayload);
+
+  return res.status(201).json({
+    success: true,
+    message: 'Favorite created successfully',
+    favorite,
+  });
+});
+
+const getFavoriteById = catchAsync(async (req, res, next) => {
+  const favorite = await Favorite.findById(req.params.id);
+
+  if (!favorite) {
+    return next(new AppError('Favorite not found', 404));
   }
-};
 
-const createNewFavorite = async (req, res) => {
-  try {
-    const sanitizedPayload = sanitizeFavoritePayload(req.body);
-    const favorite = await Favorite.create(sanitizedPayload);
+  return res.status(200).json({
+    success: true,
+    favorite,
+  });
+});
 
-    return res.status(201).json({
-      success: true,
-      message: "Favorite created successfully",
-      favorite,
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Failed to create favorite",
-    });
+const updateFavoriteById = catchAsync(async (req, res, next) => {
+  const sanitizedPayload = sanitizeFavoritePayload(req.body);
+
+  if (Object.keys(sanitizedPayload).length === 0) {
+    return next(new AppError('No valid fields provided for update', 400));
   }
-};
 
-const getFavoriteById = async (req, res) => {
-  try {
-    const favorite = await Favorite.findById(req.params.id);
+  const favorite = await Favorite.findByIdAndUpdate(
+    req.params.id,
+    sanitizedPayload,
+    {
+      new: true,
+      runValidators: true,
+    },
+  );
 
-    if (!favorite) {
-      return res.status(404).json({
-        success: false,
-        message: "Favorite not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      favorite,
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid favorite id",
-    });
+  if (!favorite) {
+    return next(new AppError('Favorite not found', 404));
   }
-};
 
-const updateFavoriteById = async (req, res) => {
-  try {
-    const sanitizedPayload = sanitizeFavoritePayload(req.body);
+  return res.status(200).json({
+    success: true,
+    message: 'Favorite updated successfully',
+    favorite,
+  });
+});
 
-    if (Object.keys(sanitizedPayload).length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No valid fields provided for update",
-      });
-    }
+const deleteFavoriteById = catchAsync(async (req, res, next) => {
+  const favorite = await Favorite.findByIdAndDelete(req.params.id);
 
-    const favorite = await Favorite.findByIdAndUpdate(
-      req.params.id,
-      sanitizedPayload,
-      {
-        new: true,
-        runValidators: true,
-      },
-    );
-
-    if (!favorite) {
-      return res.status(404).json({
-        success: false,
-        message: "Favorite not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Favorite updated successfully",
-      favorite,
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Failed to update favorite",
-    });
+  if (!favorite) {
+    return next(new AppError('Favorite not found', 404));
   }
-};
 
-const deleteFavoriteById = async (req, res) => {
-  try {
-    const favorite = await Favorite.findByIdAndDelete(req.params.id);
-
-    if (!favorite) {
-      return res.status(404).json({
-        success: false,
-        message: "Favorite not found",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Favorite deleted successfully",
-    });
-  } catch (error) {
-    return res.status(400).json({
-      success: false,
-      message: "Failed to delete favorite",
-    });
-  }
-};
+  return res.status(200).json({
+    success: true,
+    message: 'Favorite deleted successfully',
+  });
+});
 
 module.exports = {
   getAllFavorites,
