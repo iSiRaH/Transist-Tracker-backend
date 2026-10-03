@@ -28,28 +28,37 @@ npm run start:dev
 
 ### Signup
 
-- `POST /api/v1/auth/signup`
+- `POST /api/v1/auth/signup` (Generic signup with optional `"role": "user"` or `"role": "driver"`)
+- `POST /api/v1/auth/user/signup` (Passenger signup)
+- `POST /api/v1/auth/driver/signup` (Driver signup)
 
-Request body:
+Request body (Driver example):
 
 ```json
 {
-  "name": "John Doe",
-  "email": "john@example.com",
-  "password": "secret123"
+  "name": "Saman Kumara",
+  "email": "driver.saman@transit.lk",
+  "password": "password123",
+  "passwordConfirm": "password123",
+  "role": "driver",
+  "phone": "+94771234567",
+  "licenseNumber": "DL-98765"
 }
 ```
 
 ### Login
 
-- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/login` (Generic login)
+- `POST /api/v1/auth/user/login` (Passenger login)
+- `POST /api/v1/auth/driver/login` (Driver login)
 
 Request body:
 
 ```json
 {
-  "email": "john@example.com",
-  "password": "secret123"
+  "email": "driver.saman@transit.lk",
+  "password": "password123",
+  "role": "driver"
 }
 ```
 
@@ -57,12 +66,19 @@ Request body:
 
 ```json
 {
-  "success": true,
+  "status": "Success",
   "token": "<jwt-token>",
-  "user": {
-    "id": "<user-id>",
-    "name": "John Doe",
-    "email": "john@example.com"
+  "data": {
+    "user": {
+      "id": "<user-id>",
+      "name": "Saman Kumara",
+      "email": "driver.saman@transit.lk",
+      "role": "driver",
+      "phone": "+94771234567",
+      "licenseNumber": "DL-98765",
+      "profileImage": null,
+      "isActive": true
+    }
   }
 }
 ```

@@ -50,6 +50,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    licenseNumber: {
+      type: String,
+      trim: true,
+    },
     profileImage: {
       type: String,
       trim: true,

@@ -14,6 +14,7 @@ const sanitizeUserPayload = (payload) => {
     'password',
     'role',
     'phone',
+    'licenseNumber',
     'profileImage',
     'isActive',
   ]);
@@ -24,6 +25,7 @@ const sanitizeUserPayload = (payload) => {
     'password',
     'role',
     'phone',
+    'licenseNumber',
     'profileImage',
   ]);
 
