@@ -7,6 +7,8 @@ const {
   driverSignup,
   driverLogin,
   getUserInfo,
+  forgotPassword,
+  resetPassword,
 } = require('../controllers/authController');
 const { requireAuth } = require('../middlewares/authMiddleware');
 
@@ -15,6 +17,11 @@ const router = express.Router();
 // General Auth Routes
 router.post('/signup', signup);
 router.post('/login', login);
+
+// Password Reset Routes
+router.post('/forgot-password', forgotPassword);
+router.patch('/reset-password', resetPassword);
+router.patch('/reset-password/:token', resetPassword);
 
 // User-Specific Auth Routes
 router.post('/user/signup', userSignup);

@@ -8,6 +8,7 @@ const {
   driverLogin,
   getUserInfo,
 } = require('../src/controllers/authController');
+const { requireAuth } = require('../src/middlewares/authMiddleware');
 const User = require('../src/models/User');
 
 process.env.JWT_SECRET =
@@ -325,8 +326,87 @@ async function runTests() {
 
     User.findById = originalFindById;
   }
+
+  // 9. Test rememberMe session cookie extension
+  {
+    const originalFindOne = User.findOne;
+    User.findOne = () => ({
+      select: () => ({
+        _id: 'user_remember',
+        name: 'Remember User',
+        email: 'remember@example.com',
+        role: 'user',
+        isActive: true,
+        password: 'hashed_password',
+        comparePassword: async () => true,
+      }),
+    });
+
+    const loginReq = {
+      body: {
+        email: 'remember@example.com',
+        password: 'password123',
+        rememberMe: true,
+      },
+    };
+    const loginRes = createMockRes();
+    await login(loginReq, loginRes, () => {});
+    assert.strictEqual(loginRes.statusCode, 200);
+    assert.ok(loginRes.body.token);
+
+    User.findOne = originalFindOne;
+  }
+
+  // 10. Test requireAuth blocks unauthenticated requests
+  {
+    const req = { headers: {} };
+    const res = createMockRes();
+    let authError = null;
+
+    await requireAuth(req, res, (err) => {
+      authError = err;
+    });
+
+    assert.ok(authError, 'Expected authentication error when no token provided');
+  }
+
+  // 11. Test userLogin rejects driver account
+  {
+    const originalFindOne = User.findOne;
+    User.findOne = () => ({
+      select: () => ({
+        _id: 'driver_999',
+        name: 'Driver Guy',
+        email: 'driver.guy@transit.lk',
+        role: 'driver',
+        isActive: true,
+        password: 'hashed_password',
+        comparePassword: async () => true,
+      }),
+    });
+
+    const req = {
+      body: {
+        email: 'driver.guy@transit.lk',
+        password: 'password123',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await userLogin(req, res, (e) => {
+      err = e;
+    });
+
+    assert.notStrictEqual(err, null);
+    assert.strictEqual(err.statusCode, 403);
+    assert.ok(err.message.includes('not registered as a user'));
+
+    User.findOne = originalFindOne;
+  }
 }
 
-runTests().catch(() => {
+runTests().catch((err) => {
+  console.error(err);
   process.exit(1);
 });

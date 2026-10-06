@@ -6,10 +6,11 @@ const {
   updateUserById,
   deleteUserById,
 } = require('../controllers/userController');
-const { authorizeRoles } = require('../middlewares/authMiddleware');
+const { requireAuth, authorizeRoles } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
+router.use(requireAuth);
 router.use(authorizeRoles('admin'));
 
 router.get('/', getAllUsers);

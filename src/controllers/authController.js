@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
@@ -15,19 +16,25 @@ const sanitizeUser = (user) => ({
   isActive: user.isActive,
 });
 
-const signToken = (id) =>
+const signToken = (id, expiresIn = process.env.JWT_EXPIRES_IN || '7d') =>
   jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN,
+    expiresIn,
   });
 
-const createSendToken = (user, statusCode, res) => {
-  const token = signToken(user._id);
+const createSendToken = (user, statusCode, res, message, rememberMe = false) => {
+  const expiresIn = rememberMe
+    ? process.env.JWT_REMEMBER_EXPIRES_IN || '30d'
+    : process.env.JWT_EXPIRES_IN || '7d';
+
+  const cookieDays = rememberMe
+    ? Number(process.env.JWT_REMEMBER_COOKIE_EXPIRES_IN || 30)
+    : Number(process.env.JWT_COOKIE_EXPIRES_IN || 7);
+
+  const token = signToken(user._id, expiresIn);
   const cookieOptions = {
-    expires: new Date(
-      Date.now() +
-        (process.env.JWT_COOKIE_EXPIRES_IN || 7) * 24 * 60 * 60 * 1000,
-    ),
+    expires: new Date(Date.now() + cookieDays * 24 * 60 * 60 * 1000),
     httpOnly: true,
+    sameSite: 'lax',
   };
 
   if (process.env.NODE_ENV === 'production') cookieOptions.secure = true;
@@ -36,13 +43,19 @@ const createSendToken = (user, statusCode, res) => {
 
   user.password = undefined;
 
-  res.status(statusCode).json({
+  const responseBody = {
     status: 'Success',
     token,
     data: {
       user: sanitizeUser(user),
     },
-  });
+  };
+
+  if (message) {
+    responseBody.message = message;
+  }
+
+  res.status(statusCode).json(responseBody);
 };
 
 const isValidEmail = (email) => {
@@ -146,21 +159,107 @@ const signup = catchAsync(async (req, res, next) => {
 
   const user = await User.create(userData);
 
-  createSendToken(user, 201, res);
+  createSendToken(user, 201, res, null, Boolean(req.body.rememberMe));
 });
 
 const userSignup = catchAsync(async (req, res, next) => {
-  req.body.role = 'user';
-  return signup(req, res, next);
+  const {
+    name,
+    email,
+    password,
+    passwordConfirm,
+    phone,
+    profileImage,
+    rememberMe,
+  } = req.body;
+
+  if (!name || !email || !password || !passwordConfirm) {
+    return next(new AppError('Name, email and password are required', 400));
+  }
+
+  if (!isValidEmail(email)) {
+    return next(
+      new AppError(
+        "Invalid email format. Email must contain '@' and '.' with text after them",
+        400,
+      ),
+    );
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const existingUser = await User.findOne({ email: normalizedEmail });
+
+  if (existingUser) {
+    return next(new AppError('Email already exists', 409));
+  }
+
+  const userData = {
+    name: name.trim(),
+    email: normalizedEmail,
+    password,
+    passwordConfirm,
+    role: 'user',
+  };
+
+  if (phone) userData.phone = String(phone).trim();
+  if (profileImage) userData.profileImage = String(profileImage).trim();
+
+  const user = await User.create(userData);
+
+  createSendToken(user, 201, res, null, Boolean(rememberMe));
 });
 
 const driverSignup = catchAsync(async (req, res, next) => {
-  req.body.role = 'driver';
-  return signup(req, res, next);
+  const {
+    name,
+    email,
+    password,
+    passwordConfirm,
+    phone,
+    licenseNumber,
+    profileImage,
+    rememberMe,
+  } = req.body;
+
+  if (!name || !email || !password || !passwordConfirm) {
+    return next(new AppError('Name, email and password are required', 400));
+  }
+
+  if (!isValidEmail(email)) {
+    return next(
+      new AppError(
+        "Invalid email format. Email must contain '@' and '.' with text after them",
+        400,
+      ),
+    );
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const existingUser = await User.findOne({ email: normalizedEmail });
+
+  if (existingUser) {
+    return next(new AppError('Email already exists', 409));
+  }
+
+  const userData = {
+    name: name.trim(),
+    email: normalizedEmail,
+    password,
+    passwordConfirm,
+    role: 'driver',
+  };
+
+  if (phone) userData.phone = String(phone).trim();
+  if (licenseNumber) userData.licenseNumber = String(licenseNumber).trim();
+  if (profileImage) userData.profileImage = String(profileImage).trim();
+
+  const user = await User.create(userData);
+
+  createSendToken(user, 201, res, null, Boolean(rememberMe));
 });
 
 const login = catchAsync(async (req, res, next) => {
-  const { email, password, role } = req.body;
+  const { email, password, role, rememberMe } = req.body;
 
   if (!email || !password) {
     return next(new AppError('Email and password are required', 400));
@@ -199,17 +298,93 @@ const login = catchAsync(async (req, res, next) => {
     }
   }
 
-  createSendToken(user, 200, res);
+  createSendToken(user, 200, res, null, Boolean(rememberMe));
 });
 
 const userLogin = catchAsync(async (req, res, next) => {
-  req.body.role = 'user';
-  return login(req, res, next);
+  const { email, password, rememberMe } = req.body;
+
+  if (!email || !password) {
+    return next(new AppError('Email and password are required', 400));
+  }
+
+  if (!isValidEmail(email)) {
+    return next(
+      new AppError(
+        "Invalid email format. Email must contain '@' and '.' with text after them",
+        400,
+      ),
+    );
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = await User.findOne({ email: normalizedEmail }).select(
+    '+password +isActive',
+  );
+
+  if (!user || user.isActive === false) {
+    return next(new AppError('Invalid email or password', 401));
+  }
+
+  const passwordMatched = await user.comparePassword(password, user.password);
+
+  if (!passwordMatched) {
+    return next(new AppError('Invalid email or password', 401));
+  }
+
+  if (user.role !== 'user') {
+    return next(
+      new AppError(
+        'Account is not registered as a user. Please use driver login.',
+        403,
+      ),
+    );
+  }
+
+  createSendToken(user, 200, res, null, Boolean(rememberMe));
 });
 
 const driverLogin = catchAsync(async (req, res, next) => {
-  req.body.role = 'driver';
-  return login(req, res, next);
+  const { email, password, rememberMe } = req.body;
+
+  if (!email || !password) {
+    return next(new AppError('Email and password are required', 400));
+  }
+
+  if (!isValidEmail(email)) {
+    return next(
+      new AppError(
+        "Invalid email format. Email must contain '@' and '.' with text after them",
+        400,
+      ),
+    );
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = await User.findOne({ email: normalizedEmail }).select(
+    '+password +isActive',
+  );
+
+  if (!user || user.isActive === false) {
+    return next(new AppError('Invalid email or password', 401));
+  }
+
+  const passwordMatched = await user.comparePassword(password, user.password);
+
+  if (!passwordMatched) {
+    return next(new AppError('Invalid email or password', 401));
+  }
+
+  if (user.role !== 'driver') {
+    return next(
+      new AppError(
+        'Account is not registered as a driver. Please use passenger login.',
+        403,
+      ),
+    );
+  }
+
+  createSendToken(user, 200, res, null, Boolean(rememberMe));
 });
 
 const getUserInfo = catchAsync(async (req, res, next) => {
@@ -229,9 +404,98 @@ const getUserInfo = catchAsync(async (req, res, next) => {
   });
 });
 
-const forgetPassword = async (req, res) => {};
+const forgotPassword = catchAsync(async (req, res, next) => {
+  const { email } = req.body;
 
-const resetPassword = async (req, res) => {};
+  if (!email) {
+    return next(new AppError('Please provide your email address', 400));
+  }
+
+  if (!isValidEmail(email)) {
+    return next(
+      new AppError(
+        "Invalid email format. Email must contain '@' and '.' with text after them",
+        400,
+      ),
+    );
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = await User.findOne({ email: normalizedEmail });
+
+  if (!user || user.isActive === false) {
+    return next(new AppError('There is no user with that email address', 404));
+  }
+
+  const resetToken = user.createPasswordResetToken();
+  await user.save({ validateBeforeSave: false });
+
+  res.status(200).json({
+    status: 'Success',
+    message: 'Password reset token generated successfully',
+    resetToken,
+  });
+});
+
+const resetPassword = catchAsync(async (req, res, next) => {
+  const token =
+    req.params.token ||
+    req.body.token ||
+    req.body.resetToken ||
+    req.body.passwordResetToken;
+
+  const password = req.body.newPassword || req.body.password;
+  const passwordConfirm =
+    req.body.confirmNewPassword ||
+    req.body.passwordConfirm ||
+    req.body.confirmPassword ||
+    req.body.verifyPassword ||
+    req.body.verifyingNewPassword;
+
+  if (!token) {
+    return next(new AppError('Password reset token is required', 400));
+  }
+
+  if (!password || !passwordConfirm) {
+    return next(
+      new AppError('New password and password confirmation are required', 400),
+    );
+  }
+
+  if (typeof password !== 'string' || password.length < 8 || password.length > 64) {
+    return next(
+      new AppError('Password must be between 8 and 64 characters', 400),
+    );
+  }
+
+  if (password !== passwordConfirm) {
+    return next(new AppError('Passwords do not match', 400));
+  }
+
+  const hashedToken = crypto
+    .createHash('sha256')
+    .update(String(token).trim())
+    .digest('hex');
+
+  const user = await User.findOne({
+    passwordResetToken: hashedToken,
+    passwordResetExpires: { $gt: Date.now() },
+  });
+
+  if (!user || user.isActive === false) {
+    return next(new AppError('Token is invalid or has expired', 400));
+  }
+
+  user.password = password;
+  user.passwordConfirm = passwordConfirm;
+  user.passwordResetToken = undefined;
+  user.passwordResetExpires = undefined;
+  user.passwordChangedAt = Date.now();
+
+  await user.save();
+
+  createSendToken(user, 200, res, 'Password reset successfully');
+});
 
 module.exports = {
   signup,
@@ -241,6 +505,6 @@ module.exports = {
   driverSignup,
   driverLogin,
   getUserInfo,
-  forgetPassword,
+  forgotPassword,
   resetPassword,
 };

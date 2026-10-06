@@ -14,11 +14,18 @@ Authorization for protected endpoints:
 
 ## Auth
 
-| Method | Endpoint              | Description                        | Auth         |
-| ------ | --------------------- | ---------------------------------- | ------------ |
-| POST   | `/api/v1/auth/signup` | Register a new user                | Public       |
-| POST   | `/api/v1/auth/login`  | Authenticate user and return token | Public       |
-| GET    | `/api/v1/auth/me`     | Get logged-in user info            | Bearer token |
+| Method | Endpoint                             | Description                                       | Auth         |
+| ------ | ------------------------------------ | ------------------------------------------------- | ------------ |
+| POST   | `/api/v1/auth/signup`                 | Register a user/driver (role: `user` or `driver`) | Public       |
+| POST   | `/api/v1/auth/login`                  | Authenticate user or driver and return JWT token  | Public       |
+| POST   | `/api/v1/auth/forgot-password`        | Generate a password reset token for user email    | Public       |
+| PATCH  | `/api/v1/auth/reset-password`         | Reset password using token in request body        | Public       |
+| PATCH  | `/api/v1/auth/reset-password/:token`  | Reset password using token in URL parameter       | Public       |
+| POST   | `/api/v1/auth/user/signup`            | Register a new passenger user account             | Public       |
+| POST   | `/api/v1/auth/user/login`             | Authenticate a passenger user account             | Public       |
+| POST   | `/api/v1/auth/driver/signup`          | Register a new driver account                     | Public       |
+| POST   | `/api/v1/auth/driver/login`           | Authenticate a driver account                     | Public       |
+| GET    | `/api/v1/auth/me`                     | Get logged-in user or driver info                 | Bearer token |
 
 ## Vehicles
 
