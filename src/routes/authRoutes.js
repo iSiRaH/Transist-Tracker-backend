@@ -6,6 +6,8 @@ const {
   userLogin,
   driverSignup,
   driverLogin,
+  adminSignup,
+  adminLogin,
   getUserInfo,
   forgotPassword,
   resetPassword,
@@ -31,7 +33,11 @@ router.post('/user/login', userLogin);
 router.post('/driver/signup', driverSignup);
 router.post('/driver/login', driverLogin);
 
-// User/Driver Profile Route
+// Admin-Specific Auth Routes
+router.post('/admin/signup', adminSignup);
+router.post('/admin/login', adminLogin);
+
+// User/Driver/Admin Profile Route
 router.get('/me', requireAuth, getUserInfo);
 
 module.exports = router;

@@ -21,7 +21,13 @@ const signToken = (id, expiresIn = process.env.JWT_EXPIRES_IN || '7d') =>
     expiresIn,
   });
 
-const createSendToken = (user, statusCode, res, message, rememberMe = false) => {
+const createSendToken = (
+  user,
+  statusCode,
+  res,
+  message,
+  rememberMe = false,
+) => {
   const expiresIn = rememberMe
     ? process.env.JWT_REMEMBER_EXPIRES_IN || '30d'
     : process.env.JWT_EXPIRES_IN || '7d';
@@ -258,6 +264,75 @@ const driverSignup = catchAsync(async (req, res, next) => {
   createSendToken(user, 201, res, null, Boolean(rememberMe));
 });
 
+const adminSignup = catchAsync(async (req, res, next) => {
+  const {
+    name,
+    email,
+    password,
+    passwordConfirm,
+    phone,
+    profileImage,
+    adminSecretKey,
+    rememberMe,
+  } = req.body;
+
+  if (!name || !email || !password || !passwordConfirm) {
+    return next(new AppError('Name, email and password are required', 400));
+  }
+
+  if (!isValidEmail(email)) {
+    return next(
+      new AppError(
+        "Invalid email format. Email must contain '@' and '.' with text after them",
+        400,
+      ),
+    );
+  }
+
+  if (
+    typeof password !== 'string' ||
+    password.length < 8 ||
+    password.length > 64
+  ) {
+    return next(
+      new AppError('Password must be between 8 and 64 characters', 400),
+    );
+  }
+
+  if (password !== passwordConfirm) {
+    return next(new AppError('Passwords do not match', 400));
+  }
+
+  if (process.env.ADMIN_SECRET_KEY) {
+    const providedKey = adminSecretKey || req.headers['x-admin-key'];
+    if (providedKey !== process.env.ADMIN_SECRET_KEY) {
+      return next(new AppError('Invalid admin secret key', 403));
+    }
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const existingUser = await User.findOne({ email: normalizedEmail });
+
+  if (existingUser) {
+    return next(new AppError('Email already exists', 409));
+  }
+
+  const userData = {
+    name: name.trim(),
+    email: normalizedEmail,
+    password,
+    passwordConfirm,
+    role: 'admin',
+  };
+
+  if (phone) userData.phone = String(phone).trim();
+  if (profileImage) userData.profileImage = String(profileImage).trim();
+
+  const user = await User.create(userData);
+
+  createSendToken(user, 201, res, null, Boolean(rememberMe));
+});
+
 const login = catchAsync(async (req, res, next) => {
   const { email, password, role, rememberMe } = req.body;
 
@@ -387,6 +462,49 @@ const driverLogin = catchAsync(async (req, res, next) => {
   createSendToken(user, 200, res, null, Boolean(rememberMe));
 });
 
+const adminLogin = catchAsync(async (req, res, next) => {
+  const { email, password, rememberMe } = req.body;
+
+  if (!email || !password) {
+    return next(new AppError('Email and password are required', 400));
+  }
+
+  if (!isValidEmail(email)) {
+    return next(
+      new AppError(
+        "Invalid email format. Email must contain '@' and '.' with text after them",
+        400,
+      ),
+    );
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const user = await User.findOne({ email: normalizedEmail }).select(
+    '+password +isActive',
+  );
+
+  if (!user || user.isActive === false) {
+    return next(new AppError('Invalid email or password', 401));
+  }
+
+  const passwordMatched = await user.comparePassword(password, user.password);
+
+  if (!passwordMatched) {
+    return next(new AppError('Invalid email or password', 401));
+  }
+
+  if (user.role !== 'admin') {
+    return next(
+      new AppError(
+        'Account is not registered as an admin. Access denied.',
+        403,
+      ),
+    );
+  }
+
+  createSendToken(user, 200, res, null, Boolean(rememberMe));
+});
+
 const getUserInfo = catchAsync(async (req, res, next) => {
   if (!req.user) {
     return next(new AppError('Authorization is required', 401));
@@ -462,7 +580,11 @@ const resetPassword = catchAsync(async (req, res, next) => {
     );
   }
 
-  if (typeof password !== 'string' || password.length < 8 || password.length > 64) {
+  if (
+    typeof password !== 'string' ||
+    password.length < 8 ||
+    password.length > 64
+  ) {
     return next(
       new AppError('Password must be between 8 and 64 characters', 400),
     );
@@ -504,6 +626,8 @@ module.exports = {
   userLogin,
   driverSignup,
   driverLogin,
+  adminSignup,
+  adminLogin,
   getUserInfo,
   forgotPassword,
   resetPassword,

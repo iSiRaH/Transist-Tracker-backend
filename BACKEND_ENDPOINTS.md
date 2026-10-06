@@ -14,18 +14,20 @@ Authorization for protected endpoints:
 
 ## Auth
 
-| Method | Endpoint                             | Description                                       | Auth         |
-| ------ | ------------------------------------ | ------------------------------------------------- | ------------ |
-| POST   | `/api/v1/auth/signup`                 | Register a user/driver (role: `user` or `driver`) | Public       |
-| POST   | `/api/v1/auth/login`                  | Authenticate user or driver and return JWT token  | Public       |
-| POST   | `/api/v1/auth/forgot-password`        | Generate a password reset token for user email    | Public       |
-| PATCH  | `/api/v1/auth/reset-password`         | Reset password using token in request body        | Public       |
-| PATCH  | `/api/v1/auth/reset-password/:token`  | Reset password using token in URL parameter       | Public       |
-| POST   | `/api/v1/auth/user/signup`            | Register a new passenger user account             | Public       |
-| POST   | `/api/v1/auth/user/login`             | Authenticate a passenger user account             | Public       |
-| POST   | `/api/v1/auth/driver/signup`          | Register a new driver account                     | Public       |
-| POST   | `/api/v1/auth/driver/login`           | Authenticate a driver account                     | Public       |
-| GET    | `/api/v1/auth/me`                     | Get logged-in user or driver info                 | Bearer token |
+| Method | Endpoint                            | Description                                       | Auth         |
+| ------ | ----------------------------------- | ------------------------------------------------- | ------------ |
+| POST   | `/api/v1/auth/signup`                | Register a user/driver (role: `user` or `driver`) | Public       |
+| POST   | `/api/v1/auth/login`                 | Authenticate user or driver and return JWT token  | Public       |
+| POST   | `/api/v1/auth/forgot-password`       | Generate a password reset token for user email    | Public       |
+| PATCH  | `/api/v1/auth/reset-password`        | Reset password using token in request body        | Public       |
+| PATCH  | `/api/v1/auth/reset-password/:token` | Reset password using token in URL parameter       | Public       |
+| POST   | `/api/v1/auth/user/signup`           | Register a new passenger user account             | Public       |
+| POST   | `/api/v1/auth/user/login`            | Authenticate a passenger user account             | Public       |
+| POST   | `/api/v1/auth/driver/signup`         | Register a new driver account                     | Public       |
+| POST   | `/api/v1/auth/driver/login`          | Authenticate a driver account                     | Public       |
+| POST   | `/api/v1/auth/admin/signup`         | Register an admin account (optional secret key)   | Public       |
+| POST   | `/api/v1/auth/admin/login`          | Authenticate an admin account                     | Public       |
+| GET    | `/api/v1/auth/me`                    | Get logged-in user, driver, or admin info         | Bearer token |
 
 ## Vehicles
 
@@ -37,15 +39,23 @@ Authorization for protected endpoints:
 | PUT    | `/api/v1/vehicles/:id` | Update vehicle by id | Bearer token |
 | DELETE | `/api/v1/vehicles/:id` | Delete vehicle by id | Bearer token |
 
-## Users
+## Users (Admin Management)
 
-| Method | Endpoint            | Description       | Auth         |
-| ------ | ------------------- | ----------------- | ------------ |
-| GET    | `/api/v1/users/`    | Get all users     | Bearer token |
-| POST   | `/api/v1/users/`    | Create a new user | Bearer token |
-| GET    | `/api/v1/users/:id` | Get user by id    | Bearer token |
-| PUT    | `/api/v1/users/:id` | Update user by id | Bearer token |
-| DELETE | `/api/v1/users/:id` | Delete user by id | Bearer token |
+| Method | Endpoint                         | Description                                            | Auth                 |
+| ------ | -------------------------------- | ------------------------------------------------------ | -------------------- |
+| GET    | `/api/v1/users/`                 | Get all users (supports `?role=` and `?isActive=`)     | Bearer token (Admin) |
+| POST   | `/api/v1/users/`                 | Create a new user (with role `user`, `driver`, `admin`)| Bearer token (Admin) |
+| GET    | `/api/v1/users/:id`              | Get user by id (includes `isActive`)                   | Bearer token (Admin) |
+| PUT    | `/api/v1/users/:id`              | Update user by id (with safety guards)                 | Bearer token (Admin) |
+| PATCH  | `/api/v1/users/:id/deactivate`   | Safely deactivate a user account                       | Bearer token (Admin) |
+| PATCH  | `/api/v1/users/:id/reactivate`   | Safely reactivate a deactivated user account           | Bearer token (Admin) |
+| DELETE | `/api/v1/users/:id`              | Delete user by id (with safety guards)                 | Bearer token (Admin) |
+
+### User Safety Protections
+- **Self-Action Prevention**: Admins cannot deactivate, demote, or delete their own accounts.
+- **Last-Admin Safeguard**: The last active admin in the system cannot be deactivated, demoted, or deleted to prevent lockout.
+- **Session Revocation**: Deactivating a user immediately revokes any active JWT tokens (`passwordChangedAt` timestamp updated and `isActive: false` enforced in auth middleware).
+- **Redundant Status Prevention**: Attempts to deactivate an already deactivated user or reactivate an already active user return clear 400 responses.
 
 ## Routes
 
@@ -119,3 +129,11 @@ Roles: `user`, `driver`, `admin`
 - Notifications endpoints (`/api/v1/notifications/*`):
   - `GET`, `PUT`: `user`, `driver`, `admin`
   - `POST`, `DELETE`: `admin`
+
+## CLI Admin Management
+To quickly seed or provision an administrator via the CLI:
+```bash
+npm run seed:admin
+# Or with custom arguments:
+node src/scripts/createAdmin.js --name "Admin Name" --email "admin@transit.lk" --password "SecurePass123"
+```
