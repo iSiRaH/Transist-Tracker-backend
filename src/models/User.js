@@ -39,8 +39,34 @@ const userSchema = new mongoose.Schema(
       },
     },
     passwordChangedAt: Date,
-    passwordResetToken: String,
-    passwordResetExpires: Date,
+    passwordResetToken: {
+      type: String,
+      select: false,
+    },
+    passwordResetCode: {
+      type: String,
+      select: false,
+    },
+    passwordResetExpires: {
+      type: Date,
+      select: false,
+    },
+    deactivateAccountCode: {
+      type: String,
+      select: false,
+    },
+    deactivateAccountExpires: {
+      type: Date,
+      select: false,
+    },
+    deleteAccountCode: {
+      type: String,
+      select: false,
+    },
+    deleteAccountExpires: {
+      type: Date,
+      select: false,
+    },
     role: {
       type: String,
       enum: ['user', 'driver', 'admin'],
@@ -99,6 +125,45 @@ userSchema.methods.createPasswordResetToken = function () {
   this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
 
   return resetToken;
+};
+
+userSchema.methods.createPasswordResetCode = function () {
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+  this.passwordResetCode = crypto
+    .createHash('sha256')
+    .update(code)
+    .digest('hex');
+
+  this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+
+  return code;
+};
+
+userSchema.methods.createDeactivateAccountCode = function () {
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+  this.deactivateAccountCode = crypto
+    .createHash('sha256')
+    .update(code)
+    .digest('hex');
+
+  this.deactivateAccountExpires = Date.now() + 10 * 60 * 1000;
+
+  return code;
+};
+
+userSchema.methods.createDeleteAccountCode = function () {
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+  this.deleteAccountCode = crypto
+    .createHash('sha256')
+    .update(code)
+    .digest('hex');
+
+  this.deleteAccountExpires = Date.now() + 10 * 60 * 1000;
+
+  return code;
 };
 
 userSchema.methods.changedPasswordAfter = function (JWTTimestamp) {

@@ -102,7 +102,37 @@ const authorizeRoles =
     return next();
   };
 
+const optionalAuth = catchAsync(async (req, res, next) => {
+  const token = extractToken(req);
+  if (!token) {
+    return next();
+  }
+
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, secret);
+    if (decoded && decoded.id) {
+      const user = await User.findById(decoded.id).select(
+        '+isActive +passwordChangedAt',
+      );
+      if (user && user.isActive !== false) {
+        req.user = user;
+      }
+    }
+  } catch {
+    // If token verification fails, proceed as unauthenticated
+  }
+
+  return next();
+});
+
 module.exports = {
+  extractToken,
   requireAuth,
+  optionalAuth,
   authorizeRoles,
 };

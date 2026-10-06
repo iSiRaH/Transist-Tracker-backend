@@ -4,6 +4,11 @@ const User = require('../models/User');
 
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/appError');
+const {
+  sendVerificationCodeEmail,
+  sendSecurityAlertEmail,
+  sendWelcomeEmail,
+} = require('../utils/email');
 
 const sanitizeUser = (user) => ({
   id: user._id,
@@ -165,6 +170,12 @@ const signup = catchAsync(async (req, res, next) => {
 
   const user = await User.create(userData);
 
+  sendWelcomeEmail({
+    to: user.email,
+    name: user.name,
+    role: user.role,
+  }).catch(() => {});
+
   createSendToken(user, 201, res, null, Boolean(req.body.rememberMe));
 });
 
@@ -211,6 +222,12 @@ const userSignup = catchAsync(async (req, res, next) => {
   if (profileImage) userData.profileImage = String(profileImage).trim();
 
   const user = await User.create(userData);
+
+  sendWelcomeEmail({
+    to: user.email,
+    name: user.name,
+    role: 'user',
+  }).catch(() => {});
 
   createSendToken(user, 201, res, null, Boolean(rememberMe));
 });
@@ -260,6 +277,12 @@ const driverSignup = catchAsync(async (req, res, next) => {
   if (profileImage) userData.profileImage = String(profileImage).trim();
 
   const user = await User.create(userData);
+
+  sendWelcomeEmail({
+    to: user.email,
+    name: user.name,
+    role: 'driver',
+  }).catch(() => {});
 
   createSendToken(user, 201, res, null, Boolean(rememberMe));
 });
@@ -329,6 +352,12 @@ const adminSignup = catchAsync(async (req, res, next) => {
   if (profileImage) userData.profileImage = String(profileImage).trim();
 
   const user = await User.create(userData);
+
+  sendWelcomeEmail({
+    to: user.email,
+    name: user.name,
+    role: 'admin',
+  }).catch(() => {});
 
   createSendToken(user, 201, res, null, Boolean(rememberMe));
 });
@@ -545,22 +574,42 @@ const forgotPassword = catchAsync(async (req, res, next) => {
     return next(new AppError('There is no user with that email address', 404));
   }
 
+  const resetCode = user.createPasswordResetCode();
   const resetToken = user.createPasswordResetToken();
   await user.save({ validateBeforeSave: false });
 
-  res.status(200).json({
-    status: 'Success',
-    message: 'Password reset token generated successfully',
-    resetToken,
+  await sendVerificationCodeEmail({
+    to: user.email,
+    name: user.name,
+    code: resetCode,
+    action: 'forgot-password',
   });
+
+  const responseData = {
+    status: 'Success',
+    message: 'A 6-digit verification code has been sent to your email address.',
+    data: {
+      email: user.email,
+    },
+  };
+
+  if (process.env.NODE_ENV !== 'production') {
+    responseData.resetCode = resetCode;
+    responseData.resetToken = resetToken;
+  }
+
+  res.status(200).json(responseData);
 });
 
 const resetPassword = catchAsync(async (req, res, next) => {
+  const { email } = req.body;
+  const code = req.body.code || req.body.resetCode || req.body.verificationCode;
+
   const token =
-    req.params.token ||
-    req.body.token ||
-    req.body.resetToken ||
-    req.body.passwordResetToken;
+    (req.params && req.params.token) ||
+    (req.body && req.body.token) ||
+    (req.body && req.body.resetToken) ||
+    (req.body && req.body.passwordResetToken);
 
   const password = req.body.newPassword || req.body.password;
   const passwordConfirm =
@@ -570,8 +619,10 @@ const resetPassword = catchAsync(async (req, res, next) => {
     req.body.verifyPassword ||
     req.body.verifyingNewPassword;
 
-  if (!token) {
-    return next(new AppError('Password reset token is required', 400));
+  if (!code && !token) {
+    return next(
+      new AppError('Verification code or reset token is required', 400),
+    );
   }
 
   if (!password || !passwordConfirm) {
@@ -594,29 +645,350 @@ const resetPassword = catchAsync(async (req, res, next) => {
     return next(new AppError('Passwords do not match', 400));
   }
 
-  const hashedToken = crypto
-    .createHash('sha256')
-    .update(String(token).trim())
-    .digest('hex');
+  let user;
 
-  const user = await User.findOne({
-    passwordResetToken: hashedToken,
-    passwordResetExpires: { $gt: Date.now() },
-  });
+  if (code) {
+    if (!email) {
+      return next(
+        new AppError('Email is required when using a verification code', 400),
+      );
+    }
+    const normalizedEmail = email.toLowerCase().trim();
+    const hashedCode = crypto
+      .createHash('sha256')
+      .update(String(code).trim())
+      .digest('hex');
+
+    user = await User.findOne({
+      email: normalizedEmail,
+      passwordResetCode: hashedCode,
+      passwordResetExpires: { $gt: Date.now() },
+    }).select('+passwordResetCode +passwordResetExpires +isActive');
+  } else if (token) {
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(String(token).trim())
+      .digest('hex');
+
+    user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() },
+    }).select('+passwordResetToken +passwordResetExpires +isActive');
+  }
 
   if (!user || user.isActive === false) {
-    return next(new AppError('Token is invalid or has expired', 400));
+    return next(
+      new AppError('Verification code or token is invalid or has expired', 400),
+    );
   }
 
   user.password = password;
   user.passwordConfirm = passwordConfirm;
   user.passwordResetToken = undefined;
+  user.passwordResetCode = undefined;
   user.passwordResetExpires = undefined;
   user.passwordChangedAt = Date.now();
 
   await user.save();
 
+  sendSecurityAlertEmail({
+    to: user.email,
+    name: user.name,
+    subject: 'Transit Tracker - Password Changed Successfully',
+    message:
+      'The password for your Transit Tracker account was recently changed. If you made this change, no further action is needed.',
+  }).catch(() => {});
+
   createSendToken(user, 200, res, 'Password reset successfully');
+});
+
+const requestDeactivateCode = catchAsync(async (req, res, next) => {
+  let user;
+
+  if (req.user) {
+    user = await User.findById(req.user._id).select('+isActive');
+  } else {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return next(
+        new AppError(
+          'Email and password are required to request account deactivation',
+          400,
+        ),
+      );
+    }
+    const normalizedEmail = email.toLowerCase().trim();
+    user = await User.findOne({ email: normalizedEmail }).select(
+      '+password +isActive',
+    );
+
+    if (!user || user.isActive === false) {
+      return next(new AppError('Invalid email or password', 401));
+    }
+
+    const passwordMatched = await user.comparePassword(password, user.password);
+    if (!passwordMatched) {
+      return next(new AppError('Invalid email or password', 401));
+    }
+  }
+
+  if (!user || user.isActive === false) {
+    return next(new AppError('Account is not active or user not found', 400));
+  }
+
+  if (user.role === 'admin') {
+    const activeAdminCount = await User.countDocuments({
+      role: 'admin',
+      isActive: true,
+      _id: { $ne: user._id },
+    });
+    if (activeAdminCount === 0) {
+      return next(
+        new AppError('Cannot deactivate the only active admin account', 400),
+      );
+    }
+  }
+
+  const code = user.createDeactivateAccountCode();
+  await user.save({ validateBeforeSave: false });
+
+  await sendVerificationCodeEmail({
+    to: user.email,
+    name: user.name,
+    code,
+    action: 'deactivate-account',
+    warning:
+      'Entering this code will deactivate your account and invalidate all active login sessions.',
+  });
+
+  const responseData = {
+    status: 'Success',
+    message:
+      'A 6-digit verification code to deactivate your account has been sent to your email address.',
+    data: {
+      email: user.email,
+    },
+  };
+
+  if (process.env.NODE_ENV !== 'production') {
+    responseData.deactivateCode = code;
+  }
+
+  res.status(200).json(responseData);
+});
+
+const confirmDeactivateAccount = catchAsync(async (req, res, next) => {
+  const code = req.body.code || req.body.verificationCode;
+  const email = req.user ? req.user.email : req.body.email;
+
+  if (!code) {
+    return next(new AppError('Verification code is required', 400));
+  }
+
+  if (!email) {
+    return next(
+      new AppError('Email is required to verify account deactivation', 400),
+    );
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const hashedCode = crypto
+    .createHash('sha256')
+    .update(String(code).trim())
+    .digest('hex');
+
+  const user = await User.findOne({
+    email: normalizedEmail,
+    deactivateAccountCode: hashedCode,
+    deactivateAccountExpires: { $gt: Date.now() },
+  }).select('+deactivateAccountCode +deactivateAccountExpires +isActive');
+
+  if (!user || user.isActive === false) {
+    return next(
+      new AppError('Verification code is invalid or has expired', 400),
+    );
+  }
+
+  if (user.role === 'admin') {
+    const activeAdminCount = await User.countDocuments({
+      role: 'admin',
+      isActive: true,
+      _id: { $ne: user._id },
+    });
+    if (activeAdminCount === 0) {
+      return next(
+        new AppError('Cannot deactivate the only active admin account', 400),
+      );
+    }
+  }
+
+  user.isActive = false;
+  user.passwordChangedAt = Date.now();
+  user.deactivateAccountCode = undefined;
+  user.deactivateAccountExpires = undefined;
+  await user.save({ validateBeforeSave: false });
+
+  res.cookie('jwt', 'loggedout', {
+    expires: new Date(Date.now() + 10 * 1000),
+    httpOnly: true,
+  });
+
+  sendSecurityAlertEmail({
+    to: user.email,
+    name: user.name,
+    subject: 'Transit Tracker - Account Deactivated',
+    message:
+      'Your Transit Tracker account has been deactivated. You have been logged out of all active sessions. To reactivate your account in the future, please contact an administrator.',
+  }).catch(() => {});
+
+  res.status(200).json({
+    status: 'Success',
+    message: 'Your account has been deactivated successfully.',
+  });
+});
+
+const requestDeleteCode = catchAsync(async (req, res, next) => {
+  let user;
+
+  if (req.user) {
+    user = await User.findById(req.user._id).select('+isActive');
+  } else {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return next(
+        new AppError(
+          'Email and password are required to request account deletion',
+          400,
+        ),
+      );
+    }
+    const normalizedEmail = email.toLowerCase().trim();
+    user = await User.findOne({ email: normalizedEmail }).select(
+      '+password +isActive',
+    );
+
+    if (!user) {
+      return next(new AppError('Invalid email or password', 401));
+    }
+
+    const passwordMatched = await user.comparePassword(password, user.password);
+    if (!passwordMatched) {
+      return next(new AppError('Invalid email or password', 401));
+    }
+  }
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  if (user.role === 'admin') {
+    const activeAdminCount = await User.countDocuments({
+      role: 'admin',
+      isActive: true,
+      _id: { $ne: user._id },
+    });
+    if (activeAdminCount === 0) {
+      return next(
+        new AppError('Cannot delete the only active admin account', 400),
+      );
+    }
+  }
+
+  const code = user.createDeleteAccountCode();
+  await user.save({ validateBeforeSave: false });
+
+  await sendVerificationCodeEmail({
+    to: user.email,
+    name: user.name,
+    code,
+    action: 'delete-account',
+    warning:
+      'CRITICAL: Entering this code will permanently delete your account and all associated data. This action cannot be undone.',
+  });
+
+  const responseData = {
+    status: 'Success',
+    message:
+      'A 6-digit verification code to delete your account has been sent to your email address.',
+    data: {
+      email: user.email,
+    },
+  };
+
+  if (process.env.NODE_ENV !== 'production') {
+    responseData.deleteCode = code;
+  }
+
+  res.status(200).json(responseData);
+});
+
+const confirmDeleteAccount = catchAsync(async (req, res, next) => {
+  const code = req.body.code || req.body.verificationCode;
+  const email = req.user ? req.user.email : req.body.email;
+
+  if (!code) {
+    return next(new AppError('Verification code is required', 400));
+  }
+
+  if (!email) {
+    return next(
+      new AppError('Email is required to verify account deletion', 400),
+    );
+  }
+
+  const normalizedEmail = email.toLowerCase().trim();
+  const hashedCode = crypto
+    .createHash('sha256')
+    .update(String(code).trim())
+    .digest('hex');
+
+  const user = await User.findOne({
+    email: normalizedEmail,
+    deleteAccountCode: hashedCode,
+    deleteAccountExpires: { $gt: Date.now() },
+  }).select('+deleteAccountCode +deleteAccountExpires');
+
+  if (!user) {
+    return next(
+      new AppError('Verification code is invalid or has expired', 400),
+    );
+  }
+
+  if (user.role === 'admin') {
+    const activeAdminCount = await User.countDocuments({
+      role: 'admin',
+      isActive: true,
+      _id: { $ne: user._id },
+    });
+    if (activeAdminCount === 0) {
+      return next(
+        new AppError('Cannot delete the only active admin account', 400),
+      );
+    }
+  }
+
+  const userEmail = user.email;
+  const userName = user.name;
+
+  await User.findByIdAndDelete(user._id);
+
+  res.cookie('jwt', 'loggedout', {
+    expires: new Date(Date.now() + 10 * 1000),
+    httpOnly: true,
+  });
+
+  sendSecurityAlertEmail({
+    to: userEmail,
+    name: userName,
+    subject: 'Transit Tracker - Account Deleted',
+    message:
+      'Your Transit Tracker account and all associated personal data have been permanently deleted.',
+  }).catch(() => {});
+
+  res.status(200).json({
+    status: 'Success',
+    message: 'Your account has been permanently deleted.',
+  });
 });
 
 module.exports = {
@@ -631,4 +1003,8 @@ module.exports = {
   getUserInfo,
   forgotPassword,
   resetPassword,
+  requestDeactivateCode,
+  confirmDeactivateAccount,
+  requestDeleteCode,
+  confirmDeleteAccount,
 };

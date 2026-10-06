@@ -14,20 +14,24 @@ Authorization for protected endpoints:
 
 ## Auth
 
-| Method | Endpoint                            | Description                                       | Auth         |
-| ------ | ----------------------------------- | ------------------------------------------------- | ------------ |
-| POST   | `/api/v1/auth/signup`                | Register a user/driver (role: `user` or `driver`) | Public       |
-| POST   | `/api/v1/auth/login`                 | Authenticate user or driver and return JWT token  | Public       |
-| POST   | `/api/v1/auth/forgot-password`       | Generate a password reset token for user email    | Public       |
-| PATCH  | `/api/v1/auth/reset-password`        | Reset password using token in request body        | Public       |
-| PATCH  | `/api/v1/auth/reset-password/:token` | Reset password using token in URL parameter       | Public       |
-| POST   | `/api/v1/auth/user/signup`           | Register a new passenger user account             | Public       |
-| POST   | `/api/v1/auth/user/login`            | Authenticate a passenger user account             | Public       |
-| POST   | `/api/v1/auth/driver/signup`         | Register a new driver account                     | Public       |
-| POST   | `/api/v1/auth/driver/login`          | Authenticate a driver account                     | Public       |
-| POST   | `/api/v1/auth/admin/signup`         | Register an admin account (optional secret key)   | Public       |
-| POST   | `/api/v1/auth/admin/login`          | Authenticate an admin account                     | Public       |
-| GET    | `/api/v1/auth/me`                    | Get logged-in user, driver, or admin info         | Bearer token |
+| Method | Endpoint                                    | Description                                                          | Auth                  |
+| ------ | ------------------------------------------- | -------------------------------------------------------------------- | --------------------- |
+| POST   | `/api/v1/auth/signup`                       | Register a user/driver (role: `user` or `driver`)                    | Public                |
+| POST   | `/api/v1/auth/login`                        | Authenticate user or driver and return JWT token                     | Public                |
+| POST   | `/api/v1/auth/forgot-password`              | Send 6-digit verification code to user email for password reset      | Public                |
+| PATCH  | `/api/v1/auth/reset-password`               | Reset password using 6-digit email code (or token)                   | Public                |
+| PATCH  | `/api/v1/auth/reset-password/:token`        | Reset password using token in URL parameter                          | Public                |
+| POST   | `/api/v1/auth/user/signup`                  | Register a new passenger user account                                | Public                |
+| POST   | `/api/v1/auth/user/login`                   | Authenticate a passenger user account                                | Public                |
+| POST   | `/api/v1/auth/driver/signup`                | Register a new driver account                                        | Public                |
+| POST   | `/api/v1/auth/driver/login`                 | Authenticate a driver account                                        | Public                |
+| POST   | `/api/v1/auth/admin/signup`                 | Register an admin account (optional secret key)                      | Public                |
+| POST   | `/api/v1/auth/admin/login`                  | Authenticate an admin account                                        | Public                |
+| POST   | `/api/v1/auth/deactivate-account/request-code` | Request a 6-digit verification code to disable/deactivate account  | Optional Bearer / Body|
+| PATCH  | `/api/v1/auth/deactivate-account`           | Confirm account deactivation using 6-digit email code                | Optional Bearer / Body|
+| POST   | `/api/v1/auth/delete-account/request-code`  | Request a 6-digit verification code to permanently delete account   | Optional Bearer / Body|
+| DELETE | `/api/v1/auth/delete-account`               | Confirm permanent account deletion using 6-digit email code          | Optional Bearer / Body|
+| GET    | `/api/v1/auth/me`                           | Get logged-in user, driver, or admin info                            | Bearer token          |
 
 ## Vehicles
 
@@ -56,6 +60,37 @@ Authorization for protected endpoints:
 - **Last-Admin Safeguard**: The last active admin in the system cannot be deactivated, demoted, or deleted to prevent lockout.
 - **Session Revocation**: Deactivating a user immediately revokes any active JWT tokens (`passwordChangedAt` timestamp updated and `isActive: false` enforced in auth middleware).
 - **Redundant Status Prevention**: Attempts to deactivate an already deactivated user or reactivate an already active user return clear 400 responses.
+
+## Email Verification & Authentication Activity Notifications
+
+### Email Verification Codes (10-Minute Expiry)
+For critical account-altering actions, a 6-digit code is generated, cryptographically hashed with SHA-256 in the database, and emailed to the user:
+1. **Forget Password**:
+   - `POST /api/v1/auth/forgot-password` (Body: `{ "email": "user@example.com" }`) -> Sends 6-digit code to email.
+   - `PATCH /api/v1/auth/reset-password` (Body: `{ "email": "user@example.com", "code": "123456", "newPassword": "...", "passwordConfirm": "..." }`) -> Validates code and updates password.
+2. **Disable / Deactivate Account**:
+   - `POST /api/v1/auth/deactivate-account/request-code` (Bearer token or Body `{ "email": "...", "password": "..." }`) -> Sends 6-digit deactivation code to email.
+   - `PATCH /api/v1/auth/deactivate-account` (Bearer token or Body `{ "email": "...", "code": "123456" }`) -> Deactivates account, updates `passwordChangedAt` to revoke active JWT sessions.
+3. **Delete Account**:
+   - `POST /api/v1/auth/delete-account/request-code` (Bearer token or Body `{ "email": "...", "password": "..." }`) -> Sends 6-digit deletion code with critical warning.
+   - `DELETE /api/v1/auth/delete-account` (Bearer token or Body `{ "email": "...", "code": "123456" }`) -> Permanently removes account and clears cookies.
+
+### Automated Email Notifications
+- **Welcome Email**: Sent automatically upon signup (`user`, `driver`, or `admin`).
+- **Password Changed Alert**: Sent immediately after successful password reset.
+- **Account Deactivated Alert**: Sent when account is deactivated (by user with code or by administrator).
+- **Account Reactivated Alert**: Sent when account is reactivated by an administrator.
+- **Account Deleted Alert**: Sent when account is permanently deleted.
+
+### Email Configuration (.env)
+```env
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USERNAME=your_email@gmail.com
+EMAIL_PASSWORD=your_email_app_password
+EMAIL_FROM="Transit Tracker <no-reply@transittracker.com>"
+```
+
 
 ## Routes
 

@@ -9,6 +9,12 @@ const {
   adminSignup,
   adminLogin,
   getUserInfo,
+  forgotPassword,
+  resetPassword,
+  requestDeactivateCode,
+  confirmDeactivateAccount,
+  requestDeleteCode,
+  confirmDeleteAccount,
 } = require('../src/controllers/authController');
 const {
   createNewUser,
@@ -811,6 +817,293 @@ async function runTests() {
     assert.strictEqual(err.statusCode, 401);
 
     User.findOne = originalFindOne;
+  }
+
+  // 23. Test forgotPassword generates verification code
+  {
+    const originalFindOne = User.findOne;
+    let savedCode = null;
+
+    User.findOne = async () => ({
+      _id: 'user_forgot',
+      name: 'Forgot User',
+      email: 'forgot@transit.lk',
+      isActive: true,
+      createPasswordResetCode: function () {
+        savedCode = '654321';
+        this.passwordResetCode = 'hashed_654321';
+        return savedCode;
+      },
+      createPasswordResetToken: function () {
+        return 'token_123';
+      },
+      save: async () => {},
+    });
+
+    const req = {
+      body: {
+        email: 'forgot@transit.lk',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await forgotPassword(req, res, (e) => {
+      err = e;
+    });
+
+    assert.strictEqual(err, null);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.status, 'Success');
+    assert.ok(res.body.message.includes('6-digit verification code'));
+    assert.strictEqual(res.body.resetCode, '654321');
+
+    User.findOne = originalFindOne;
+  }
+
+  // 24. Test resetPassword with valid 6-digit code
+  {
+    const originalFindOne = User.findOne;
+    let passwordUpdated = false;
+
+    User.findOne = () => ({
+      select: () => ({
+        _id: 'user_reset',
+        name: 'Reset User',
+        email: 'forgot@transit.lk',
+        role: 'user',
+        isActive: true,
+        save: async function () {
+          passwordUpdated = true;
+        },
+      }),
+    });
+
+    const req = {
+      body: {
+        email: 'forgot@transit.lk',
+        code: '654321',
+        newPassword: 'newpassword123',
+        passwordConfirm: 'newpassword123',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await resetPassword(req, res, (e) => {
+      err = e;
+    });
+
+    assert.strictEqual(err, null);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(passwordUpdated, true);
+    assert.strictEqual(res.body.status, 'Success');
+
+    User.findOne = originalFindOne;
+  }
+
+  // 25. Test resetPassword with invalid code is rejected
+  {
+    const originalFindOne = User.findOne;
+
+    User.findOne = () => ({
+      select: () => null, // No matching user for invalid code
+    });
+
+    const req = {
+      body: {
+        email: 'forgot@transit.lk',
+        code: '000000',
+        newPassword: 'newpassword123',
+        passwordConfirm: 'newpassword123',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await resetPassword(req, res, (e) => {
+      err = e;
+    });
+
+    assert.notStrictEqual(err, null);
+    assert.strictEqual(err.statusCode, 400);
+    assert.ok(err.message.includes('invalid or has expired'));
+
+    User.findOne = originalFindOne;
+  }
+
+  // 26. Test requestDeactivateCode generates 6-digit code
+  {
+    const originalFindOne = User.findOne;
+    let generatedCode = null;
+
+    User.findOne = () => ({
+      select: () => ({
+        _id: 'user_deact_req',
+        name: 'Deact User',
+        email: 'deact@transit.lk',
+        role: 'user',
+        isActive: true,
+        comparePassword: async () => true,
+        createDeactivateAccountCode: function () {
+          generatedCode = '112233';
+          return generatedCode;
+        },
+        save: async () => {},
+      }),
+    });
+
+    const req = {
+      body: {
+        email: 'deact@transit.lk',
+        password: 'password123',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await requestDeactivateCode(req, res, (e) => {
+      err = e;
+    });
+
+    assert.strictEqual(err, null);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.deactivateCode, '112233');
+
+    User.findOne = originalFindOne;
+  }
+
+  // 27. Test confirmDeactivateAccount deactivates account
+  {
+    const originalFindOne = User.findOne;
+    let userDoc = {
+      _id: 'user_deact_req',
+      name: 'Deact User',
+      email: 'deact@transit.lk',
+      role: 'user',
+      isActive: true,
+      save: async function () {
+        return this;
+      },
+    };
+
+    User.findOne = () => ({
+      select: () => userDoc,
+    });
+
+    const req = {
+      body: {
+        email: 'deact@transit.lk',
+        code: '112233',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await confirmDeactivateAccount(req, res, (e) => {
+      err = e;
+    });
+
+    assert.strictEqual(err, null);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(userDoc.isActive, false);
+
+    User.findOne = originalFindOne;
+  }
+
+  // 28. Test requestDeleteCode & confirmDeleteAccount
+  {
+    const originalFindOne = User.findOne;
+    const originalFindByIdAndDelete = User.findByIdAndDelete;
+    let deletedId = null;
+
+    User.findOne = () => ({
+      select: () => ({
+        _id: 'user_to_delete',
+        name: 'Delete Me',
+        email: 'delete@transit.lk',
+        role: 'user',
+        isActive: true,
+        comparePassword: async () => true,
+        createDeleteAccountCode: () => '998877',
+        save: async () => {},
+      }),
+    });
+
+    const reqSend = {
+      body: {
+        email: 'delete@transit.lk',
+        password: 'password123',
+      },
+    };
+    const resSend = createMockRes();
+    await requestDeleteCode(reqSend, resSend, () => {});
+    assert.strictEqual(resSend.statusCode, 200);
+    assert.strictEqual(resSend.body.deleteCode, '998877');
+
+    User.findOne = () => ({
+      select: () => ({
+        _id: 'user_to_delete',
+        name: 'Delete Me',
+        email: 'delete@transit.lk',
+        role: 'user',
+      }),
+    });
+    User.findByIdAndDelete = async (id) => {
+      deletedId = id;
+    };
+
+    const reqConfirm = {
+      body: {
+        email: 'delete@transit.lk',
+        code: '998877',
+      },
+    };
+    const resConfirm = createMockRes();
+    await confirmDeleteAccount(reqConfirm, resConfirm, () => {});
+    assert.strictEqual(resConfirm.statusCode, 200);
+    assert.strictEqual(deletedId, 'user_to_delete');
+
+    User.findOne = originalFindOne;
+    User.findByIdAndDelete = originalFindByIdAndDelete;
+  }
+
+  // 29. Test only active admin cannot delete their account
+  {
+    const originalFindOne = User.findOne;
+    const originalCountDocuments = User.countDocuments;
+
+    User.findOne = () => ({
+      select: () => ({
+        _id: 'admin_sole',
+        name: 'Sole Admin',
+        email: 'sole.admin@transit.lk',
+        role: 'admin',
+        isActive: true,
+        comparePassword: async () => true,
+      }),
+    });
+    User.countDocuments = async () => 0; // 0 other active admins
+
+    const req = {
+      body: {
+        email: 'sole.admin@transit.lk',
+        password: 'password123',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await requestDeleteCode(req, res, (e) => {
+      err = e;
+    });
+
+    assert.notStrictEqual(err, null);
+    assert.strictEqual(err.statusCode, 400);
+    assert.ok(err.message.includes('Cannot delete the only active admin'));
+
+    User.findOne = originalFindOne;
+    User.countDocuments = originalCountDocuments;
   }
 }
 

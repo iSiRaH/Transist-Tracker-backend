@@ -6,6 +6,7 @@ const {
   trimStringFields,
   toBooleanOrOriginal,
 } = require('../utils/sanitizeInput');
+const { sendSecurityAlertEmail, sendWelcomeEmail } = require('../utils/email');
 
 const isValidEmail = (email) => {
   if (typeof email !== 'string') {
@@ -148,6 +149,12 @@ const createNewUser = catchAsync(async (req, res, next) => {
   const user = await User.create(sanitizedPayload);
   user.password = undefined;
 
+  sendWelcomeEmail({
+    to: user.email,
+    name: user.name,
+    role: user.role,
+  }).catch(() => {});
+
   return res.status(201).json({
     success: true,
     message: 'User created successfully',
@@ -283,7 +290,18 @@ const deleteUserById = catchAsync(async (req, res, next) => {
     }
   }
 
+  const deletedUserEmail = user.email;
+  const deletedUserName = user.name;
+
   await User.findByIdAndDelete(targetId);
+
+  sendSecurityAlertEmail({
+    to: deletedUserEmail,
+    name: deletedUserName,
+    subject: 'Transit Tracker - Account Deleted by Administrator',
+    message:
+      'Your Transit Tracker account has been removed by an administrator.',
+  }).catch(() => {});
 
   return res.status(200).json({
     success: true,
@@ -333,6 +351,14 @@ const deactivateUserById = catchAsync(async (req, res, next) => {
   user.passwordChangedAt = Date.now();
   await user.save({ validateBeforeSave: false });
 
+  sendSecurityAlertEmail({
+    to: user.email,
+    name: user.name,
+    subject: 'Transit Tracker - Account Deactivated by Administrator',
+    message:
+      'Your Transit Tracker account has been deactivated by an administrator. If you believe this was done in error, please contact system support.',
+  }).catch(() => {});
+
   return res.status(200).json({
     success: true,
     message: `User '${user.name}' has been deactivated successfully`,
@@ -362,6 +388,14 @@ const reactivateUserById = catchAsync(async (req, res, next) => {
 
   user.isActive = true;
   await user.save({ validateBeforeSave: false });
+
+  sendSecurityAlertEmail({
+    to: user.email,
+    name: user.name,
+    subject: 'Transit Tracker - Account Reactivated by Administrator',
+    message:
+      'Your Transit Tracker account has been reactivated by an administrator. You may now log back in.',
+  }).catch(() => {});
 
   return res.status(200).json({
     success: true,
