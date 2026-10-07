@@ -23,6 +23,7 @@ const {
 } = require('../src/controllers/userController');
 const { requireAuth } = require('../src/middlewares/authMiddleware');
 const User = require('../src/models/User');
+const emailService = require('../src/utils/email');
 
 process.env.JWT_SECRET =
   'test-secret-key-1234567890-test-secret-1234567890-test-secret';
@@ -859,6 +860,96 @@ async function runTests() {
     assert.strictEqual(res.body.resetCode, '654321');
 
     User.findOne = originalFindOne;
+  }
+
+  // 23b. Test forgotPassword failure when email service throws
+  {
+    const originalFindOne = User.findOne;
+    const originalSendVerification = emailService.sendVerificationCodeEmail;
+
+    const mockUser = {
+      _id: 'user_forgot_err',
+      name: 'Error User',
+      email: 'error@transit.lk',
+      isActive: true,
+      createPasswordResetCode: function () {
+        this.passwordResetCode = 'hashed_999999';
+        this.passwordResetExpires = Date.now() + 600000;
+        return '999999';
+      },
+      createPasswordResetToken: function () {
+        this.passwordResetToken = 'token_err';
+        this.passwordResetExpires = Date.now() + 600000;
+        return 'token_err';
+      },
+      save: async () => true,
+    };
+
+    User.findOne = async () => mockUser;
+    emailService.sendVerificationCodeEmail = async () => {
+      throw new Error('SMTP connection refused');
+    };
+
+    const req = {
+      body: {
+        email: 'error@transit.lk',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await forgotPassword(req, res, (e) => {
+      err = e;
+    });
+
+    assert.ok(err !== null, 'Expected an error to be passed to next()');
+    assert.strictEqual(err.statusCode, 500);
+    assert.strictEqual(err.isOperational, true);
+    assert.ok(
+      err.message.includes(
+        'Failed to send verification email: SMTP connection refused',
+      ),
+      `Unexpected error message: ${err.message}`,
+    );
+    // Verify tokens were cleared on mockUser
+    assert.strictEqual(mockUser.passwordResetCode, undefined);
+    assert.strictEqual(mockUser.passwordResetToken, undefined);
+    assert.strictEqual(mockUser.passwordResetExpires, undefined);
+    // Verify res.body was NOT sent as success
+    assert.strictEqual(res.body, undefined);
+
+    User.findOne = originalFindOne;
+    emailService.sendVerificationCodeEmail = originalSendVerification;
+  }
+
+  // 23c. Test sendEmail throws when transporter is not configured in production
+  {
+    const originalConsoleError = console.error;
+    console.error = () => {};
+
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    let prodErr = null;
+    try {
+      await emailService.sendEmail({
+        to: 'test@transit.lk',
+        subject: 'Test',
+        text: 'Test',
+      });
+    } catch (e) {
+      prodErr = e;
+    }
+    assert.ok(
+      prodErr !== null,
+      'Expected sendEmail to throw when email service not configured in production',
+    );
+    assert.strictEqual(
+      prodErr.message,
+      'Email service is not configured on the server',
+    );
+
+    process.env.NODE_ENV = originalEnv;
+    console.error = originalConsoleError;
   }
 
   // 24. Test resetPassword with valid 6-digit code

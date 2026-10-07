@@ -38,26 +38,32 @@ const sendEmail = async ({ to, subject, text, html }) => {
   const transporter = createTransporter();
 
   if (!transporter) {
-    // Development or test environment without configured SMTP
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[Email Service - Simulated] To: ${to}`);
-      console.log(`[Email Service - Simulated] Subject: ${subject}`);
-      console.log(`[Email Service - Simulated] Text:\n${text}`);
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Email service is not configured on the server');
     }
+    // Development or test environment without configured SMTP
+    console.log(`[Email Service - Simulated] To: ${to}`);
+    console.log(`[Email Service - Simulated] Subject: ${subject}`);
+    console.log(`[Email Service - Simulated] Text:\n${text}`);
     return { accepted: [to], messageId: 'simulated-dev-id' };
   }
 
   try {
     const info = await transporter.sendMail(mailOptions);
+    if (
+      info &&
+      Array.isArray(info.rejected) &&
+      info.rejected.length > 0 &&
+      (!info.accepted || !info.accepted.includes(to))
+    ) {
+      throw new Error(`Email recipient ${to} was rejected by the mail server`);
+    }
     return info;
   } catch (error) {
     console.error(
       `[Email Service Error] Failed sending to ${to}:`,
       error.message,
     );
-    if (process.env.NODE_ENV !== 'production') {
-      return { accepted: [to], error: error.message };
-    }
     throw error;
   }
 };

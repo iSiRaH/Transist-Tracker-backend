@@ -4,11 +4,7 @@ const User = require('../models/User');
 
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/appError');
-const {
-  sendVerificationCodeEmail,
-  sendSecurityAlertEmail,
-  sendWelcomeEmail,
-} = require('../utils/email');
+const emailService = require('../utils/email');
 
 const sanitizeUser = (user) => ({
   id: user._id,
@@ -170,11 +166,13 @@ const signup = catchAsync(async (req, res, next) => {
 
   const user = await User.create(userData);
 
-  sendWelcomeEmail({
-    to: user.email,
-    name: user.name,
-    role: user.role,
-  }).catch(() => {});
+  emailService
+    .sendWelcomeEmail({
+      to: user.email,
+      name: user.name,
+      role: user.role,
+    })
+    .catch(() => {});
 
   createSendToken(user, 201, res, null, Boolean(req.body.rememberMe));
 });
@@ -223,11 +221,13 @@ const userSignup = catchAsync(async (req, res, next) => {
 
   const user = await User.create(userData);
 
-  sendWelcomeEmail({
-    to: user.email,
-    name: user.name,
-    role: 'user',
-  }).catch(() => {});
+  emailService
+    .sendWelcomeEmail({
+      to: user.email,
+      name: user.name,
+      role: 'user',
+    })
+    .catch(() => {});
 
   createSendToken(user, 201, res, null, Boolean(rememberMe));
 });
@@ -278,11 +278,13 @@ const driverSignup = catchAsync(async (req, res, next) => {
 
   const user = await User.create(userData);
 
-  sendWelcomeEmail({
-    to: user.email,
-    name: user.name,
-    role: 'driver',
-  }).catch(() => {});
+  emailService
+    .sendWelcomeEmail({
+      to: user.email,
+      name: user.name,
+      role: 'driver',
+    })
+    .catch(() => {});
 
   createSendToken(user, 201, res, null, Boolean(rememberMe));
 });
@@ -353,11 +355,13 @@ const adminSignup = catchAsync(async (req, res, next) => {
 
   const user = await User.create(userData);
 
-  sendWelcomeEmail({
-    to: user.email,
-    name: user.name,
-    role: 'admin',
-  }).catch(() => {});
+  emailService
+    .sendWelcomeEmail({
+      to: user.email,
+      name: user.name,
+      role: 'admin',
+    })
+    .catch(() => {});
 
   createSendToken(user, 201, res, null, Boolean(rememberMe));
 });
@@ -578,12 +582,26 @@ const forgotPassword = catchAsync(async (req, res, next) => {
   const resetToken = user.createPasswordResetToken();
   await user.save({ validateBeforeSave: false });
 
-  await sendVerificationCodeEmail({
-    to: user.email,
-    name: user.name,
-    code: resetCode,
-    action: 'forgot-password',
-  });
+  try {
+    await emailService.sendVerificationCodeEmail({
+      to: user.email,
+      name: user.name,
+      code: resetCode,
+      action: 'forgot-password',
+    });
+  } catch (err) {
+    user.passwordResetToken = undefined;
+    user.passwordResetCode = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save({ validateBeforeSave: false });
+
+    return next(
+      new AppError(
+        `Failed to send verification email: ${err.message || 'There was an error sending the email'}. Please try again later.`,
+        500,
+      ),
+    );
+  }
 
   const responseData = {
     status: 'Success',
@@ -691,13 +709,15 @@ const resetPassword = catchAsync(async (req, res, next) => {
 
   await user.save();
 
-  sendSecurityAlertEmail({
-    to: user.email,
-    name: user.name,
-    subject: 'Transit Tracker - Password Changed Successfully',
-    message:
-      'The password for your Transit Tracker account was recently changed. If you made this change, no further action is needed.',
-  }).catch(() => {});
+  emailService
+    .sendSecurityAlertEmail({
+      to: user.email,
+      name: user.name,
+      subject: 'Transit Tracker - Password Changed Successfully',
+      message:
+        'The password for your Transit Tracker account was recently changed. If you made this change, no further action is needed.',
+    })
+    .catch(() => {});
 
   createSendToken(user, 200, res, 'Password reset successfully');
 });
@@ -752,14 +772,27 @@ const requestDeactivateCode = catchAsync(async (req, res, next) => {
   const code = user.createDeactivateAccountCode();
   await user.save({ validateBeforeSave: false });
 
-  await sendVerificationCodeEmail({
-    to: user.email,
-    name: user.name,
-    code,
-    action: 'deactivate-account',
-    warning:
-      'Entering this code will deactivate your account and invalidate all active login sessions.',
-  });
+  try {
+    await emailService.sendVerificationCodeEmail({
+      to: user.email,
+      name: user.name,
+      code,
+      action: 'deactivate-account',
+      warning:
+        'Entering this code will deactivate your account and invalidate all active login sessions.',
+    });
+  } catch (err) {
+    user.deactivateAccountCode = undefined;
+    user.deactivateAccountExpires = undefined;
+    await user.save({ validateBeforeSave: false });
+
+    return next(
+      new AppError(
+        `Failed to send verification email: ${err.message || 'There was an error sending the email'}. Please try again later.`,
+        500,
+      ),
+    );
+  }
 
   const responseData = {
     status: 'Success',
@@ -833,13 +866,15 @@ const confirmDeactivateAccount = catchAsync(async (req, res, next) => {
     httpOnly: true,
   });
 
-  sendSecurityAlertEmail({
-    to: user.email,
-    name: user.name,
-    subject: 'Transit Tracker - Account Deactivated',
-    message:
-      'Your Transit Tracker account has been deactivated. You have been logged out of all active sessions. To reactivate your account in the future, please contact an administrator.',
-  }).catch(() => {});
+  emailService
+    .sendSecurityAlertEmail({
+      to: user.email,
+      name: user.name,
+      subject: 'Transit Tracker - Account Deactivated',
+      message:
+        'Your Transit Tracker account has been deactivated. You have been logged out of all active sessions. To reactivate your account in the future, please contact an administrator.',
+    })
+    .catch(() => {});
 
   res.status(200).json({
     status: 'Success',
@@ -897,14 +932,27 @@ const requestDeleteCode = catchAsync(async (req, res, next) => {
   const code = user.createDeleteAccountCode();
   await user.save({ validateBeforeSave: false });
 
-  await sendVerificationCodeEmail({
-    to: user.email,
-    name: user.name,
-    code,
-    action: 'delete-account',
-    warning:
-      'CRITICAL: Entering this code will permanently delete your account and all associated data. This action cannot be undone.',
-  });
+  try {
+    await emailService.sendVerificationCodeEmail({
+      to: user.email,
+      name: user.name,
+      code,
+      action: 'delete-account',
+      warning:
+        'CRITICAL: Entering this code will permanently delete your account and all associated data. This action cannot be undone.',
+    });
+  } catch (err) {
+    user.deleteAccountCode = undefined;
+    user.deleteAccountExpires = undefined;
+    await user.save({ validateBeforeSave: false });
+
+    return next(
+      new AppError(
+        `Failed to send verification email: ${err.message || 'There was an error sending the email'}. Please try again later.`,
+        500,
+      ),
+    );
+  }
 
   const responseData = {
     status: 'Success',
@@ -977,13 +1025,15 @@ const confirmDeleteAccount = catchAsync(async (req, res, next) => {
     httpOnly: true,
   });
 
-  sendSecurityAlertEmail({
-    to: userEmail,
-    name: userName,
-    subject: 'Transit Tracker - Account Deleted',
-    message:
-      'Your Transit Tracker account and all associated personal data have been permanently deleted.',
-  }).catch(() => {});
+  emailService
+    .sendSecurityAlertEmail({
+      to: userEmail,
+      name: userName,
+      subject: 'Transit Tracker - Account Deleted',
+      message:
+        'Your Transit Tracker account and all associated personal data have been permanently deleted.',
+    })
+    .catch(() => {});
 
   res.status(200).json({
     status: 'Success',
