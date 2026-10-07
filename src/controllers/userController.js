@@ -6,14 +6,45 @@ const {
   trimStringFields,
   toBooleanOrOriginal,
 } = require('../utils/sanitizeInput');
+const { sendSecurityAlertEmail, sendWelcomeEmail } = require('../utils/email');
+const { cleanupUserDependencies } = require('../utils/userCleanup');
+const { withAdminLock } = require('../utils/adminLock');
+
+const isValidEmail = (email) => {
+  if (typeof email !== 'string') {
+    return false;
+  }
+  if (!email.includes('@')) {
+    return false;
+  }
+  const atIndex = email.indexOf('@');
+  const afterAt = email.substring(atIndex + 1);
+  if (!afterAt.includes('.')) {
+    return false;
+  }
+  if (atIndex === 0) {
+    return false;
+  }
+  const lastDotIndex = email.lastIndexOf('.');
+  if (lastDotIndex === email.length - 1) {
+    return false;
+  }
+  const dotIndex = afterAt.indexOf('.');
+  if (dotIndex === 0) {
+    return false;
+  }
+  return true;
+};
 
 const sanitizeUserPayload = (payload) => {
   const sanitized = pickAllowedFields(payload, [
     'name',
     'email',
     'password',
+    'passwordConfirm',
     'role',
     'phone',
+    'licenseNumber',
     'profileImage',
     'isActive',
   ]);
@@ -22,8 +53,10 @@ const sanitizeUserPayload = (payload) => {
     'name',
     'email',
     'password',
+    'passwordConfirm',
     'role',
     'phone',
+    'licenseNumber',
     'profileImage',
   ]);
 
@@ -35,7 +68,36 @@ const sanitizeUserPayload = (payload) => {
 };
 
 const getAllUsers = catchAsync(async (req, res) => {
-  const users = await User.find().sort({ createdAt: -1 });
+  const filter = {};
+
+  if (req.query && typeof req.query.role === 'string') {
+    const role = req.query.role.trim().toLowerCase();
+    if (role) {
+      filter.role = { $eq: role };
+    }
+  }
+
+  if (req.query && req.query.isActive !== undefined) {
+    if (
+      req.query.isActive === true ||
+      req.query.isActive === 'true' ||
+      req.query.isActive === 1 ||
+      req.query.isActive === '1'
+    ) {
+      filter.isActive = { $eq: true };
+    } else if (
+      req.query.isActive === false ||
+      req.query.isActive === 'false' ||
+      req.query.isActive === 0 ||
+      req.query.isActive === '0'
+    ) {
+      filter.isActive = { $eq: false };
+    }
+  }
+
+  const users = await User.find(filter)
+    .select('+isActive')
+    .sort({ createdAt: -1 });
 
   return res.status(200).json({
     success: true,
@@ -44,9 +106,73 @@ const getAllUsers = catchAsync(async (req, res) => {
   });
 });
 
-const createNewUser = catchAsync(async (req, res) => {
+const createNewUser = catchAsync(async (req, res, next) => {
   const sanitizedPayload = sanitizeUserPayload(req.body);
+
+  if (
+    !sanitizedPayload.name ||
+    !sanitizedPayload.email ||
+    !sanitizedPayload.password
+  ) {
+    return next(new AppError('Name, email and password are required', 400));
+  }
+
+  if (!isValidEmail(sanitizedPayload.email)) {
+    return next(
+      new AppError(
+        "Invalid email format. Email must contain '@' and '.' with text after them",
+        400,
+      ),
+    );
+  }
+
+  if (!sanitizedPayload.passwordConfirm) {
+    sanitizedPayload.passwordConfirm = sanitizedPayload.password;
+  }
+
+  if (sanitizedPayload.password !== sanitizedPayload.passwordConfirm) {
+    return next(new AppError('Passwords do not match', 400));
+  }
+
+  if (
+    typeof sanitizedPayload.password !== 'string' ||
+    sanitizedPayload.password.length < 8 ||
+    sanitizedPayload.password.length > 64
+  ) {
+    return next(
+      new AppError('Password must be between 8 and 64 characters', 400),
+    );
+  }
+
+  if (
+    sanitizedPayload.role &&
+    !['user', 'driver', 'admin'].includes(sanitizedPayload.role)
+  ) {
+    return next(
+      new AppError(
+        'Invalid role. Allowed roles are "user", "driver", or "admin"',
+        400,
+      ),
+    );
+  }
+
+  const normalizedEmail = sanitizedPayload.email.toLowerCase().trim();
+  const existingUser = await User.findOne({ email: normalizedEmail });
+
+  if (existingUser) {
+    return next(new AppError('Email already exists', 409));
+  }
+
+  sanitizedPayload.email = normalizedEmail;
+
   const user = await User.create(sanitizedPayload);
+  user.password = undefined;
+
+  sendWelcomeEmail({
+    to: user.email,
+    name: user.name,
+    role: user.role,
+  }).catch(() => {});
 
   return res.status(201).json({
     success: true,
@@ -56,7 +182,7 @@ const createNewUser = catchAsync(async (req, res) => {
 });
 
 const getUserById = catchAsync(async (req, res, next) => {
-  const user = await User.findById(req.params.id);
+  const user = await User.findById(req.params.id).select('+isActive');
 
   if (!user) {
     return next(new AppError('User not found', 404));
@@ -75,14 +201,88 @@ const updateUserById = catchAsync(async (req, res, next) => {
     return next(new AppError('No valid fields provided for update', 400));
   }
 
-  const user = await User.findById(req.params.id).select('+password');
+  const user = await User.findById(req.params.id).select('+password +isActive');
 
   if (!user) {
     return next(new AppError('User not found', 404));
   }
 
+  const currentUserId = req.user && req.user._id ? req.user._id.toString() : '';
+  const targetUserId = user._id.toString();
+
+  // Safety guard: Admin cannot deactivate their own account via update
+  if (sanitizedPayload.isActive === false && user.isActive !== false) {
+    if (currentUserId === targetUserId) {
+      return next(
+        new AppError('Admins cannot deactivate their own account', 400),
+      );
+    }
+
+    if (user.role === 'admin') {
+      const hasOtherAdmins = await withAdminLock(async () => {
+        const activeAdminCount = await User.countDocuments({
+          role: 'admin',
+          isActive: true,
+          _id: { $ne: user._id },
+        });
+        return activeAdminCount > 0;
+      });
+
+      if (!hasOtherAdmins) {
+        return next(
+          new AppError('Cannot deactivate the only active admin account', 400),
+        );
+      }
+    }
+
+    user.passwordChangedAt = Date.now();
+  }
+
+  // Safety guard: Admin cannot demote themselves or the only active admin
+  if (
+    sanitizedPayload.role &&
+    sanitizedPayload.role !== 'admin' &&
+    user.role === 'admin'
+  ) {
+    if (currentUserId === targetUserId) {
+      return next(new AppError('Admins cannot change their own role', 400));
+    }
+
+    const hasOtherAdmins = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+      return activeAdminCount > 0;
+    });
+
+    if (!hasOtherAdmins) {
+      return next(
+        new AppError('Cannot demote the only active admin account', 400),
+      );
+    }
+  }
+
+  if (
+    sanitizedPayload.role &&
+    !['user', 'driver', 'admin'].includes(sanitizedPayload.role)
+  ) {
+    return next(
+      new AppError(
+        'Invalid role. Allowed roles are "user", "driver", or "admin"',
+        400,
+      ),
+    );
+  }
+
+  if (sanitizedPayload.password) {
+    user.passwordChangedAt = Date.now() - 1000;
+  }
+
   Object.assign(user, sanitizedPayload);
   await user.save();
+  user.password = undefined;
 
   return res.status(200).json({
     success: true,
@@ -92,15 +292,172 @@ const updateUserById = catchAsync(async (req, res, next) => {
 });
 
 const deleteUserById = catchAsync(async (req, res, next) => {
-  const user = await User.findByIdAndDelete(req.params.id);
+  const currentUserId = req.user && req.user._id ? req.user._id.toString() : '';
+  const targetId = req.params.id;
+
+  if (currentUserId === targetId.toString()) {
+    return next(new AppError('Admins cannot delete their own account', 400));
+  }
+
+  const user = await User.findById(targetId);
 
   if (!user) {
     return next(new AppError('User not found', 404));
   }
 
+  const deletedUserEmail = user.email;
+  const deletedUserName = user.name;
+
+  if (user.role === 'admin') {
+    const canDelete = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+
+      if (activeAdminCount === 0) {
+        return false;
+      }
+
+      await cleanupUserDependencies(targetId);
+      await User.findByIdAndDelete(targetId);
+      return true;
+    });
+
+    if (!canDelete) {
+      return next(
+        new AppError('Cannot delete the only active admin account', 400),
+      );
+    }
+  } else {
+    await cleanupUserDependencies(targetId);
+    await User.findByIdAndDelete(targetId);
+  }
+
+  sendSecurityAlertEmail({
+    to: deletedUserEmail,
+    name: deletedUserName,
+    subject: 'Transit Tracker - Account Deleted by Administrator',
+    message:
+      'Your Transit Tracker account has been removed by an administrator.',
+  }).catch(() => {});
+
   return res.status(200).json({
     success: true,
     message: 'User deleted successfully',
+  });
+});
+
+const deactivateUserById = catchAsync(async (req, res, next) => {
+  const currentUserId = req.user && req.user._id ? req.user._id.toString() : '';
+  const targetId = req.params.id;
+
+  // 1. Safety Guard: Admin cannot deactivate their own account
+  if (currentUserId === targetId.toString()) {
+    return next(
+      new AppError('Admins cannot deactivate their own account', 400),
+    );
+  }
+
+  const user = await User.findById(targetId).select('+isActive');
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  // 2. Safety Guard: Already deactivated check
+  if (user.isActive === false) {
+    return next(new AppError('User account is already deactivated', 400));
+  }
+
+  // 3. Safety Guard: Cannot deactivate the only active admin account
+  if (user.role === 'admin') {
+    const canDeactivate = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+
+      if (activeAdminCount === 0) {
+        return false;
+      }
+
+      user.isActive = false;
+      user.passwordChangedAt = Date.now();
+      await user.save({ validateBeforeSave: false });
+      return true;
+    });
+
+    if (!canDeactivate) {
+      return next(
+        new AppError('Cannot deactivate the only active admin account', 400),
+      );
+    }
+  } else {
+    // Deactivate safely and invalidate any existing JWT sessions
+    user.isActive = false;
+    user.passwordChangedAt = Date.now();
+    await user.save({ validateBeforeSave: false });
+  }
+
+  sendSecurityAlertEmail({
+    to: user.email,
+    name: user.name,
+    subject: 'Transit Tracker - Account Deactivated by Administrator',
+    message:
+      'Your Transit Tracker account has been deactivated by an administrator. If you believe this was done in error, please contact system support.',
+  }).catch(() => {});
+
+  return res.status(200).json({
+    success: true,
+    message: `User '${user.name}' has been deactivated successfully`,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+    },
+  });
+});
+
+const reactivateUserById = catchAsync(async (req, res, next) => {
+  const targetId = req.params.id;
+
+  const user = await User.findById(targetId).select('+isActive');
+
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+
+  // Safety Guard: Already active check
+  if (user.isActive === true) {
+    return next(new AppError('User account is already active', 400));
+  }
+
+  user.isActive = true;
+  await user.save({ validateBeforeSave: false });
+
+  sendSecurityAlertEmail({
+    to: user.email,
+    name: user.name,
+    subject: 'Transit Tracker - Account Reactivated by Administrator',
+    message:
+      'Your Transit Tracker account has been reactivated by an administrator. You may now log back in.',
+  }).catch(() => {});
+
+  return res.status(200).json({
+    success: true,
+    message: `User '${user.name}' has been reactivated successfully`,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive,
+    },
   });
 });
 
@@ -110,4 +467,6 @@ module.exports = {
   getUserById,
   updateUserById,
   deleteUserById,
+  deactivateUserById,
+  reactivateUserById,
 };

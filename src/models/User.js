@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const validator = require('validator');
+const crypto = require('crypto');
 
 const userSchema = new mongoose.Schema(
   {
@@ -38,8 +39,34 @@ const userSchema = new mongoose.Schema(
       },
     },
     passwordChangedAt: Date,
-    passwordResetToken: String,
-    passwordResetExpires: Date,
+    passwordResetToken: {
+      type: String,
+      select: false,
+    },
+    passwordResetCode: {
+      type: String,
+      select: false,
+    },
+    passwordResetExpires: {
+      type: Date,
+      select: false,
+    },
+    deactivateAccountCode: {
+      type: String,
+      select: false,
+    },
+    deactivateAccountExpires: {
+      type: Date,
+      select: false,
+    },
+    deleteAccountCode: {
+      type: String,
+      select: false,
+    },
+    deleteAccountExpires: {
+      type: Date,
+      select: false,
+    },
     role: {
       type: String,
       enum: ['user', 'driver', 'admin'],
@@ -47,6 +74,10 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
     phone: {
+      type: String,
+      trim: true,
+    },
+    licenseNumber: {
       type: String,
       trim: true,
     },
@@ -67,14 +98,17 @@ const userSchema = new mongoose.Schema(
   },
 );
 
-userSchema.pre('save', async function hashPassword(next) {
+userSchema.pre('save', async function hashPassword() {
   if (!this.isModified('password')) {
-    return next();
+    return;
   }
 
   this.password = await bcrypt.hash(this.password, 12);
   this.passwordConfirm = undefined;
-  return next();
+
+  if (!this.isNew) {
+    this.passwordChangedAt = Date.now() - 1000;
+  }
 });
 
 userSchema.methods.comparePassword = async function (
@@ -82,6 +116,75 @@ userSchema.methods.comparePassword = async function (
   userPassword,
 ) {
   return bcrypt.compare(candidatePassword, userPassword);
+};
+
+const hashResetToken = (token) => {
+  if (!token) return '';
+  const salt = process.env.TOKEN_HASH_SALT || 'transit-tracker-token-salt';
+  return crypto.scryptSync(String(token).trim(), salt, 32).toString('hex');
+};
+
+userSchema.statics.hashResetToken = hashResetToken;
+userSchema.statics.hashToken = hashResetToken;
+
+userSchema.methods.createPasswordResetToken = function () {
+  const resetToken = crypto.randomBytes(32).toString('hex');
+
+  this.passwordResetToken = hashResetToken(resetToken);
+
+  this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+
+  return resetToken;
+};
+
+userSchema.methods.createPasswordResetCode = function () {
+  const code = crypto.randomInt(100000, 1000000).toString();
+
+  this.passwordResetCode = crypto
+    .createHash('sha256')
+    .update(code)
+    .digest('hex');
+
+  this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
+
+  return code;
+};
+
+userSchema.methods.createDeactivateAccountCode = function () {
+  const code = crypto.randomInt(100000, 1000000).toString();
+
+  this.deactivateAccountCode = crypto
+    .createHash('sha256')
+    .update(code)
+    .digest('hex');
+
+  this.deactivateAccountExpires = Date.now() + 10 * 60 * 1000;
+
+  return code;
+};
+
+userSchema.methods.createDeleteAccountCode = function () {
+  const code = crypto.randomInt(100000, 1000000).toString();
+
+  this.deleteAccountCode = crypto
+    .createHash('sha256')
+    .update(code)
+    .digest('hex');
+
+  this.deleteAccountExpires = Date.now() + 10 * 60 * 1000;
+
+  return code;
+};
+
+userSchema.methods.changedPasswordAfter = function (JWTTimestamp) {
+  if (this.passwordChangedAt) {
+    const changedTimestamp = parseInt(
+      this.passwordChangedAt.getTime() / 1000,
+      10,
+    );
+    return JWTTimestamp < changedTimestamp;
+  }
+  return false;
 };
 
 module.exports = mongoose.model('User', userSchema);
