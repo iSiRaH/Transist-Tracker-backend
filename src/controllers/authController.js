@@ -643,9 +643,11 @@ const resetPassword = catchAsync(async (req, res, next) => {
 
   const token =
     (req.params && req.params.token) ||
-    (req.body && req.body.token) ||
-    (req.body && req.body.resetToken) ||
-    (req.body && req.body.passwordResetToken);
+    (req.body &&
+      (req.body.token ||
+        req.body.resetToken ||
+        req.body.verificationToken ||
+        req.body.passwordResetToken));
 
   const password = req.body.newPassword || req.body.password;
   const passwordConfirm =
@@ -701,10 +703,7 @@ const resetPassword = catchAsync(async (req, res, next) => {
       passwordResetExpires: { $gt: Date.now() },
     }).select('+passwordResetCode +passwordResetExpires +isActive');
   } else if (token) {
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(String(token).trim())
-      .digest('hex');
+    const hashedToken = User.hashResetToken(token);
 
     user = await User.findOne({
       passwordResetToken: hashedToken,

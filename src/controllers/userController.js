@@ -70,12 +70,29 @@ const sanitizeUserPayload = (payload) => {
 const getAllUsers = catchAsync(async (req, res) => {
   const filter = {};
 
-  if (req.query && req.query.role) {
-    filter.role = String(req.query.role).trim().toLowerCase();
+  if (req.query && typeof req.query.role === 'string') {
+    const role = req.query.role.trim().toLowerCase();
+    if (role) {
+      filter.role = { $eq: role };
+    }
   }
 
   if (req.query && req.query.isActive !== undefined) {
-    filter.isActive = toBooleanOrOriginal(req.query.isActive);
+    if (
+      req.query.isActive === true ||
+      req.query.isActive === 'true' ||
+      req.query.isActive === 1 ||
+      req.query.isActive === '1'
+    ) {
+      filter.isActive = { $eq: true };
+    } else if (
+      req.query.isActive === false ||
+      req.query.isActive === 'false' ||
+      req.query.isActive === 0 ||
+      req.query.isActive === '0'
+    ) {
+      filter.isActive = { $eq: false };
+    }
   }
 
   const users = await User.find(filter)

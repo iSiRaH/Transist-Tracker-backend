@@ -118,13 +118,19 @@ userSchema.methods.comparePassword = async function (
   return bcrypt.compare(candidatePassword, userPassword);
 };
 
+const hashResetToken = (token) => {
+  if (!token) return '';
+  const salt = process.env.TOKEN_HASH_SALT || 'transit-tracker-token-salt';
+  return crypto.scryptSync(String(token).trim(), salt, 32).toString('hex');
+};
+
+userSchema.statics.hashResetToken = hashResetToken;
+userSchema.statics.hashToken = hashResetToken;
+
 userSchema.methods.createPasswordResetToken = function () {
   const resetToken = crypto.randomBytes(32).toString('hex');
 
-  this.passwordResetToken = crypto
-    .createHash('sha256')
-    .update(resetToken)
-    .digest('hex');
+  this.passwordResetToken = hashResetToken(resetToken);
 
   this.passwordResetExpires = Date.now() + 10 * 60 * 1000;
 

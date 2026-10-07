@@ -18,6 +18,7 @@ const {
   confirmDeleteAccount,
 } = require('../src/controllers/authController');
 const {
+  getAllUsers,
   createNewUser,
   deactivateUserById,
   reactivateUserById,
@@ -1394,6 +1395,159 @@ async function runTests() {
     );
 
     User.findById = originalFindById;
+  }
+
+  // 33. Test User.hashResetToken produces deterministic scrypt hash and createPasswordResetToken sets it
+  {
+    const rawToken = 'sample_secret_reset_token_12345';
+    const hash1 = User.hashResetToken(rawToken);
+    const hash2 = User.hashResetToken(rawToken);
+    assert.strictEqual(hash1, hash2);
+    assert.strictEqual(typeof hash1, 'string');
+    assert.strictEqual(hash1.length, 64);
+
+    const mockDoc = new User({
+      name: 'Token User',
+      email: 'tokenuser@transit.lk',
+      password: 'password123',
+    });
+    const generatedToken = mockDoc.createPasswordResetToken();
+    assert.strictEqual(typeof generatedToken, 'string');
+    assert.strictEqual(
+      mockDoc.passwordResetToken,
+      User.hashResetToken(generatedToken),
+    );
+    assert.ok(mockDoc.passwordResetExpires > Date.now());
+  }
+
+  // 34. Test resetPassword with valid resetToken using scrypt hash
+  {
+    const originalFindOne = User.findOne;
+    let passwordUpdated = false;
+    let searchedFilter = null;
+    const testRawToken = 'valid_raw_reset_token_xyz';
+    const expectedHash = User.hashResetToken(testRawToken);
+
+    User.findOne = (filter) => {
+      searchedFilter = filter;
+      return {
+        select: () => {
+          if (filter.passwordResetToken === expectedHash) {
+            return {
+              _id: 'user_reset_token',
+              name: 'Reset Token User',
+              email: 'tokenreset@transit.lk',
+              role: 'user',
+              isActive: true,
+              save: async function () {
+                passwordUpdated = true;
+              },
+            };
+          }
+          return null;
+        },
+      };
+    };
+
+    // Valid token
+    const req = {
+      body: {
+        resetToken: testRawToken,
+        newPassword: 'newsecurepassword123',
+        passwordConfirm: 'newsecurepassword123',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await resetPassword(req, res, (e) => {
+      err = e;
+    });
+
+    assert.strictEqual(err, null);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(passwordUpdated, true);
+    assert.strictEqual(searchedFilter.passwordResetToken, expectedHash);
+
+    // Invalid token rejected
+    const reqInvalid = {
+      params: {
+        token: 'invalid_raw_token_abc',
+      },
+      body: {
+        newPassword: 'newsecurepassword123',
+        passwordConfirm: 'newsecurepassword123',
+      },
+    };
+    const resInvalid = createMockRes();
+    let errInvalid = null;
+
+    await resetPassword(reqInvalid, resInvalid, (e) => {
+      errInvalid = e;
+    });
+
+    assert.notStrictEqual(errInvalid, null);
+    assert.strictEqual(errInvalid.statusCode, 400);
+    assert.ok(errInvalid.message.includes('invalid or has expired'));
+
+    User.findOne = originalFindOne;
+  }
+
+  // 35. Test getAllUsers safely constructs $eq filter and mitigates NoSQL injection
+  {
+    const originalFind = User.find;
+    let capturedFilter = null;
+
+    User.find = (filter) => {
+      capturedFilter = filter;
+      return {
+        select: () => ({
+          sort: async () => [
+            { _id: 'u1', name: 'User 1', role: 'driver', isActive: true },
+          ],
+        }),
+      };
+    };
+
+    // Safe parameters
+    const reqSafe = {
+      query: {
+        role: 'DRIVER',
+        isActive: 'true',
+      },
+    };
+    const resSafe = createMockRes();
+    let errSafe = null;
+    await getAllUsers(reqSafe, resSafe, (e) => {
+      errSafe = e;
+    });
+
+    assert.strictEqual(errSafe, null);
+    assert.strictEqual(resSafe.statusCode, 200);
+    assert.deepStrictEqual(capturedFilter, {
+      role: { $eq: 'driver' },
+      isActive: { $eq: true },
+    });
+
+    // Attempted NoSQL injection via objects
+    const reqInjection = {
+      query: {
+        role: { $ne: 'admin' },
+        isActive: { $ne: null },
+      },
+    };
+    const resInjection = createMockRes();
+    let errInjection = null;
+    await getAllUsers(reqInjection, resInjection, (e) => {
+      errInjection = e;
+    });
+
+    assert.strictEqual(errInjection, null);
+    assert.strictEqual(resInjection.statusCode, 200);
+    // Malicious objects are discarded entirely, leaving empty filter
+    assert.deepStrictEqual(capturedFilter, {});
+
+    User.find = originalFind;
   }
 }
 
