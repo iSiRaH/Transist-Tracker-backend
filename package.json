@@ -14,7 +14,7 @@
     "start:prod": "NODE_ENV=production nodemon src/server.js"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

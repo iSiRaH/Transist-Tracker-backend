@@ -1,4 +1,5 @@
 const assert = require('assert');
+const jwt = require('jsonwebtoken');
 const {
   signup,
   login,
@@ -20,11 +21,13 @@ const {
   createNewUser,
   deactivateUserById,
   reactivateUserById,
+  updateUserById,
 } = require('../src/controllers/userController');
-const { requireAuth } = require('../src/middlewares/authMiddleware');
+const { requireAuth, optionalAuth } = require('../src/middlewares/authMiddleware');
 const User = require('../src/models/User');
 const emailService = require('../src/utils/email');
 
+process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET =
   'test-secret-key-1234567890-test-secret-1234567890-test-secret';
 process.env.JWT_EXPIRES_IN = '1d';
@@ -419,8 +422,71 @@ async function runTests() {
     User.findOne = originalFindOne;
   }
 
-  // 12. Test admin signup
+  // 12a. Test admin signup fails closed when ADMIN_SECRET_KEY is missing
   {
+    const originalSecret = process.env.ADMIN_SECRET_KEY;
+    delete process.env.ADMIN_SECRET_KEY;
+
+    const req = {
+      body: {
+        name: 'Chief Admin',
+        email: 'chief.admin@transit.lk',
+        password: 'password123',
+        passwordConfirm: 'password123',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await adminSignup(req, res, (e) => {
+      err = e;
+    });
+
+    assert.ok(err !== null, 'Expected adminSignup to fail closed when ADMIN_SECRET_KEY is missing');
+    assert.strictEqual(err.statusCode, 500);
+    assert.ok(err.message.includes('Admin registration is not configured'));
+
+    if (originalSecret !== undefined) {
+      process.env.ADMIN_SECRET_KEY = originalSecret;
+    }
+  }
+
+  // 12b. Test admin signup fails with invalid admin secret key
+  {
+    const originalSecret = process.env.ADMIN_SECRET_KEY;
+    process.env.ADMIN_SECRET_KEY = 'correct-admin-secret';
+
+    const req = {
+      body: {
+        name: 'Chief Admin',
+        email: 'chief.admin@transit.lk',
+        password: 'password123',
+        passwordConfirm: 'password123',
+        adminSecretKey: 'wrong-admin-secret',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await adminSignup(req, res, (e) => {
+      err = e;
+    });
+
+    assert.ok(err !== null);
+    assert.strictEqual(err.statusCode, 403);
+    assert.ok(err.message.includes('Invalid admin secret key'));
+
+    if (originalSecret !== undefined) {
+      process.env.ADMIN_SECRET_KEY = originalSecret;
+    } else {
+      delete process.env.ADMIN_SECRET_KEY;
+    }
+  }
+
+  // 12c. Test admin signup success with valid admin secret key
+  {
+    const originalSecret = process.env.ADMIN_SECRET_KEY;
+    process.env.ADMIN_SECRET_KEY = 'correct-admin-secret';
     let createdDoc = null;
     const originalCreate = User.create;
     const originalFindOne = User.findOne;
@@ -441,6 +507,7 @@ async function runTests() {
         email: 'chief.admin@transit.lk',
         password: 'password123',
         passwordConfirm: 'password123',
+        adminSecretKey: 'correct-admin-secret',
       },
     };
     const res = createMockRes();
@@ -457,6 +524,12 @@ async function runTests() {
 
     User.create = originalCreate;
     User.findOne = originalFindOne;
+
+    if (originalSecret !== undefined) {
+      process.env.ADMIN_SECRET_KEY = originalSecret;
+    } else {
+      delete process.env.ADMIN_SECRET_KEY;
+    }
   }
 
   // 13. Test admin login success
@@ -952,6 +1025,32 @@ async function runTests() {
     console.error = originalConsoleError;
   }
 
+  // 23d. Test forgotPassword prevents account enumeration when user does not exist
+  {
+    const originalFindOne = User.findOne;
+    User.findOne = async () => null;
+
+    const req = {
+      body: {
+        email: 'nonexistent@transit.lk',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await forgotPassword(req, res, (e) => {
+      err = e;
+    });
+
+    assert.strictEqual(err, null);
+    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.body.status, 'Success');
+    assert.ok(res.body.message.includes('6-digit verification code'));
+    assert.strictEqual(res.body.resetCode, undefined);
+
+    User.findOne = originalFindOne;
+  }
+
   // 24. Test resetPassword with valid 6-digit code
   {
     const originalFindOne = User.findOne;
@@ -1195,6 +1294,106 @@ async function runTests() {
 
     User.findOne = originalFindOne;
     User.countDocuments = originalCountDocuments;
+  }
+
+  // 30. Test optionalAuth enforces allowed algorithms and passwordChangedAt revocation
+  {
+    const originalFindById = User.findById;
+    const token = jwt.sign(
+      { id: 'user_optional_revoked' },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' },
+    );
+
+    // Password changed after token issued
+    User.findById = () => ({
+      select: () => ({
+        _id: 'user_optional_revoked',
+        isActive: true,
+        passwordChangedAt: new Date(Date.now() + 5000),
+        changedPasswordAfter: function (iat) {
+          return iat < parseInt(this.passwordChangedAt.getTime() / 1000, 10);
+        },
+      }),
+    });
+
+    const req = {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+      cookies: {},
+    };
+    const res = createMockRes();
+
+    await optionalAuth(req, res, () => {});
+    assert.strictEqual(
+      req.user,
+      undefined,
+      'Expected optionalAuth not to set req.user when password changed after token issuance',
+    );
+
+    User.findById = originalFindById;
+  }
+
+  // 31. Test createPasswordResetCode uses secure 6-digit cryptographic RNG
+  {
+    const userInstance = new User({
+      name: 'Crypto User',
+      email: 'crypto@transit.lk',
+      password: 'password123',
+    });
+    const code = userInstance.createPasswordResetCode();
+    assert.strictEqual(typeof code, 'string');
+    assert.strictEqual(code.length, 6);
+    assert.ok(/^\d{6}$/.test(code), 'Expected code to be 6 digits');
+    assert.ok(
+      parseInt(code, 10) >= 100000 && parseInt(code, 10) <= 999999,
+      'Expected code to be between 100000 and 999999',
+    );
+  }
+
+  // 32. Test updateUserById revokes tokens when administrator changes password
+  {
+    const originalFindById = User.findById;
+    let savedUser = null;
+    User.findById = () => ({
+      select: () => ({
+        _id: 'user_pw_change',
+        name: 'Target User',
+        email: 'target@transit.lk',
+        role: 'user',
+        isActive: true,
+        save: async function () {
+          savedUser = this;
+          return this;
+        },
+      }),
+    });
+
+    const req = {
+      user: { _id: 'admin_123', role: 'admin' },
+      params: { id: 'user_pw_change' },
+      body: {
+        password: 'NewPassword@123',
+        passwordConfirm: 'NewPassword@123',
+      },
+    };
+    const res = createMockRes();
+    let err = null;
+
+    await updateUserById(req, res, (e) => {
+      err = e;
+    });
+
+    assert.strictEqual(err, null);
+    assert.strictEqual(res.statusCode, 200);
+    assert.ok(savedUser !== null);
+    assert.ok(
+      savedUser.passwordChangedAt !== undefined,
+      'Expected passwordChangedAt to be set when password is changed by admin',
+    );
+
+    User.findById = originalFindById;
   }
 }
 

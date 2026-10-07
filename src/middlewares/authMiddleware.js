@@ -113,13 +113,24 @@ const optionalAuth = catchAsync(async (req, res, next) => {
     return next();
   }
 
+  const allowedAlgorithms = (process.env.JWT_ALGORITHMS || 'HS256')
+    .split(',')
+    .map((algorithm) => algorithm.trim())
+    .filter(Boolean);
+
   try {
-    const decoded = jwt.verify(token, secret);
+    const decoded = jwt.verify(token, secret, {
+      algorithms: allowedAlgorithms,
+    });
     if (decoded && decoded.id) {
       const user = await User.findById(decoded.id).select(
         '+isActive +passwordChangedAt',
       );
-      if (user && user.isActive !== false) {
+      if (
+        user &&
+        user.isActive !== false &&
+        !(user.changedPasswordAfter && user.changedPasswordAfter(decoded.iat))
+      ) {
         req.user = user;
       }
     }

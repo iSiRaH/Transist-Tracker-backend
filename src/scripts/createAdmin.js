@@ -18,10 +18,19 @@ const createAdmin = async () => {
     return args[index + 1] || fallback;
   };
 
-  const name = getArg('name', 'System Admin');
-  const email = getArg('email', 'admin@transit.lk').toLowerCase().trim();
-  const password = getArg('password', 'Admin@123456');
-  const phone = getArg('phone', '+94700000000');
+  const name = getArg('name', process.env.SEED_ADMIN_NAME);
+  const emailRaw = getArg('email', process.env.SEED_ADMIN_EMAIL);
+  const password = getArg('password', process.env.SEED_ADMIN_PASSWORD);
+  const phone = getArg('phone', process.env.SEED_ADMIN_PHONE);
+
+  if (!emailRaw || !password || !name) {
+    console.error(
+      'Error: Admin seeding requires explicit credentials. Please provide --email, --password, and --name command-line arguments, or set SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, and SEED_ADMIN_NAME environment variables. Hardcoded default credentials are not permitted.',
+    );
+    process.exit(1);
+  }
+
+  const email = emailRaw.toLowerCase().trim();
 
   try {
     await connectDB();

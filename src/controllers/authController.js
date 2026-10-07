@@ -5,6 +5,8 @@ const User = require('../models/User');
 const catchAsync = require('../utils/catchAsync');
 const AppError = require('../utils/appError');
 const emailService = require('../utils/email');
+const { cleanupUserDependencies } = require('../utils/userCleanup');
+const { withAdminLock } = require('../utils/adminLock');
 
 const sanitizeUser = (user) => ({
   id: user._id,
@@ -328,11 +330,16 @@ const adminSignup = catchAsync(async (req, res, next) => {
     return next(new AppError('Passwords do not match', 400));
   }
 
-  if (process.env.ADMIN_SECRET_KEY) {
-    const providedKey = adminSecretKey || req.headers['x-admin-key'];
-    if (providedKey !== process.env.ADMIN_SECRET_KEY) {
-      return next(new AppError('Invalid admin secret key', 403));
-    }
+  const expectedAdminKey = process.env.ADMIN_SECRET_KEY;
+  if (!expectedAdminKey) {
+    return next(
+      new AppError('Admin registration is not configured on the server', 500),
+    );
+  }
+
+  const providedKey = adminSecretKey || req.headers['x-admin-key'];
+  if (!providedKey || providedKey !== expectedAdminKey) {
+    return next(new AppError('Invalid admin secret key', 403));
   }
 
   const normalizedEmail = email.toLowerCase().trim();
@@ -575,7 +582,14 @@ const forgotPassword = catchAsync(async (req, res, next) => {
   const user = await User.findOne({ email: normalizedEmail });
 
   if (!user || user.isActive === false) {
-    return next(new AppError('There is no user with that email address', 404));
+    return res.status(200).json({
+      status: 'Success',
+      message:
+        'If an account with that email address exists, a 6-digit verification code has been sent.',
+      data: {
+        email: normalizedEmail,
+      },
+    });
   }
 
   const resetCode = user.createPasswordResetCode();
@@ -605,13 +619,17 @@ const forgotPassword = catchAsync(async (req, res, next) => {
 
   const responseData = {
     status: 'Success',
-    message: 'A 6-digit verification code has been sent to your email address.',
+    message:
+      'If an account with that email address exists, a 6-digit verification code has been sent.',
     data: {
       email: user.email,
     },
   };
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (
+    process.env.NODE_ENV === 'development' ||
+    process.env.NODE_ENV === 'test'
+  ) {
     responseData.resetCode = resetCode;
     responseData.resetToken = resetToken;
   }
@@ -757,12 +775,16 @@ const requestDeactivateCode = catchAsync(async (req, res, next) => {
   }
 
   if (user.role === 'admin') {
-    const activeAdminCount = await User.countDocuments({
-      role: 'admin',
-      isActive: true,
-      _id: { $ne: user._id },
+    const hasOtherAdmins = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+      return activeAdminCount > 0;
     });
-    if (activeAdminCount === 0) {
+
+    if (!hasOtherAdmins) {
       return next(
         new AppError('Cannot deactivate the only active admin account', 400),
       );
@@ -803,7 +825,10 @@ const requestDeactivateCode = catchAsync(async (req, res, next) => {
     },
   };
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (
+    process.env.NODE_ENV === 'development' ||
+    process.env.NODE_ENV === 'test'
+  ) {
     responseData.deactivateCode = code;
   }
 
@@ -843,23 +868,35 @@ const confirmDeactivateAccount = catchAsync(async (req, res, next) => {
   }
 
   if (user.role === 'admin') {
-    const activeAdminCount = await User.countDocuments({
-      role: 'admin',
-      isActive: true,
-      _id: { $ne: user._id },
+    const canDeactivate = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+      if (activeAdminCount === 0) {
+        return false;
+      }
+      user.isActive = false;
+      user.passwordChangedAt = Date.now();
+      user.deactivateAccountCode = undefined;
+      user.deactivateAccountExpires = undefined;
+      await user.save({ validateBeforeSave: false });
+      return true;
     });
-    if (activeAdminCount === 0) {
+
+    if (!canDeactivate) {
       return next(
         new AppError('Cannot deactivate the only active admin account', 400),
       );
     }
+  } else {
+    user.isActive = false;
+    user.passwordChangedAt = Date.now();
+    user.deactivateAccountCode = undefined;
+    user.deactivateAccountExpires = undefined;
+    await user.save({ validateBeforeSave: false });
   }
-
-  user.isActive = false;
-  user.passwordChangedAt = Date.now();
-  user.deactivateAccountCode = undefined;
-  user.deactivateAccountExpires = undefined;
-  await user.save({ validateBeforeSave: false });
 
   res.cookie('jwt', 'loggedout', {
     expires: new Date(Date.now() + 10 * 1000),
@@ -917,12 +954,16 @@ const requestDeleteCode = catchAsync(async (req, res, next) => {
   }
 
   if (user.role === 'admin') {
-    const activeAdminCount = await User.countDocuments({
-      role: 'admin',
-      isActive: true,
-      _id: { $ne: user._id },
+    const hasOtherAdmins = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+      return activeAdminCount > 0;
     });
-    if (activeAdminCount === 0) {
+
+    if (!hasOtherAdmins) {
       return next(
         new AppError('Cannot delete the only active admin account', 400),
       );
@@ -963,7 +1004,10 @@ const requestDeleteCode = catchAsync(async (req, res, next) => {
     },
   };
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (
+    process.env.NODE_ENV === 'development' ||
+    process.env.NODE_ENV === 'test'
+  ) {
     responseData.deleteCode = code;
   }
 
@@ -1002,23 +1046,33 @@ const confirmDeleteAccount = catchAsync(async (req, res, next) => {
     );
   }
 
+  const userEmail = user.email;
+  const userName = user.name;
+
   if (user.role === 'admin') {
-    const activeAdminCount = await User.countDocuments({
-      role: 'admin',
-      isActive: true,
-      _id: { $ne: user._id },
+    const canDelete = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+      if (activeAdminCount === 0) {
+        return false;
+      }
+      await cleanupUserDependencies(user._id);
+      await User.findByIdAndDelete(user._id);
+      return true;
     });
-    if (activeAdminCount === 0) {
+
+    if (!canDelete) {
       return next(
         new AppError('Cannot delete the only active admin account', 400),
       );
     }
+  } else {
+    await cleanupUserDependencies(user._id);
+    await User.findByIdAndDelete(user._id);
   }
-
-  const userEmail = user.email;
-  const userName = user.name;
-
-  await User.findByIdAndDelete(user._id);
 
   res.cookie('jwt', 'loggedout', {
     expires: new Date(Date.now() + 10 * 1000),

@@ -68,6 +68,16 @@ const sendEmail = async ({ to, subject, text, html }) => {
   }
 };
 
+const escapeHtml = (str) => {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 const buildCodeTemplate = ({
   name,
   code,
@@ -100,7 +110,7 @@ const buildCodeTemplate = ({
       <h1>Transit Tracker</h1>
     </div>
     <div class="content">
-      <div class="greeting">Hello ${name || 'User'},</div>
+      <div class="greeting">Hello ${escapeHtml(name) || 'User'},</div>
       <div class="description">${description}</div>
       <div class="code-box">
         <div class="code">${code}</div>
@@ -185,7 +195,7 @@ const sendSecurityAlertEmail = async ({ to, name, subject, message }) => {
       <h1>Transit Tracker Security Alert</h1>
     </div>
     <div class="content">
-      <p>Hello ${name || 'User'},</p>
+      <p>Hello ${escapeHtml(name) || 'User'},</p>
       <div class="notice-box">${message}</div>
       <p style="font-size: 13px; color: #6b7280;">If you did not perform this action, please contact support immediately.</p>
     </div>
@@ -225,8 +235,8 @@ const sendWelcomeEmail = async ({ to, name, role = 'user' }) => {
       <h1>Welcome to Transit Tracker!</h1>
     </div>
     <div class="content">
-      <p>Hello <strong>${name || 'User'}</strong>,</p>
-      <p>Thank you for joining Transit Tracker as a <strong>${roleDisplay}</strong>! We're excited to have you on board.</p>
+      <p>Hello <strong>${escapeHtml(name) || 'User'}</strong>,</p>
+      <p>Thank you for joining Transit Tracker as a <strong>${escapeHtml(roleDisplay)}</strong>! We're excited to have you on board.</p>
       <p>You can now sign in to your account, track real-time transit routes, and manage your schedules seamlessly.</p>
     </div>
     <div class="footer">

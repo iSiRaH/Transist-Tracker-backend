@@ -105,6 +105,10 @@ userSchema.pre('save', async function hashPassword() {
 
   this.password = await bcrypt.hash(this.password, 12);
   this.passwordConfirm = undefined;
+
+  if (!this.isNew) {
+    this.passwordChangedAt = Date.now() - 1000;
+  }
 });
 
 userSchema.methods.comparePassword = async function (
@@ -128,7 +132,7 @@ userSchema.methods.createPasswordResetToken = function () {
 };
 
 userSchema.methods.createPasswordResetCode = function () {
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const code = crypto.randomInt(100000, 1000000).toString();
 
   this.passwordResetCode = crypto
     .createHash('sha256')
@@ -141,7 +145,7 @@ userSchema.methods.createPasswordResetCode = function () {
 };
 
 userSchema.methods.createDeactivateAccountCode = function () {
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const code = crypto.randomInt(100000, 1000000).toString();
 
   this.deactivateAccountCode = crypto
     .createHash('sha256')
@@ -154,7 +158,7 @@ userSchema.methods.createDeactivateAccountCode = function () {
 };
 
 userSchema.methods.createDeleteAccountCode = function () {
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const code = crypto.randomInt(100000, 1000000).toString();
 
   this.deleteAccountCode = crypto
     .createHash('sha256')

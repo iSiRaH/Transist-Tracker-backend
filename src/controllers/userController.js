@@ -7,6 +7,8 @@ const {
   toBooleanOrOriginal,
 } = require('../utils/sanitizeInput');
 const { sendSecurityAlertEmail, sendWelcomeEmail } = require('../utils/email');
+const { cleanupUserDependencies } = require('../utils/userCleanup');
+const { withAdminLock } = require('../utils/adminLock');
 
 const isValidEmail = (email) => {
   if (typeof email !== 'string') {
@@ -200,13 +202,16 @@ const updateUserById = catchAsync(async (req, res, next) => {
     }
 
     if (user.role === 'admin') {
-      const activeAdminCount = await User.countDocuments({
-        role: 'admin',
-        isActive: true,
-        _id: { $ne: user._id },
+      const hasOtherAdmins = await withAdminLock(async () => {
+        const activeAdminCount = await User.countDocuments({
+          role: 'admin',
+          isActive: true,
+          _id: { $ne: user._id },
+        });
+        return activeAdminCount > 0;
       });
 
-      if (activeAdminCount === 0) {
+      if (!hasOtherAdmins) {
         return next(
           new AppError('Cannot deactivate the only active admin account', 400),
         );
@@ -226,13 +231,16 @@ const updateUserById = catchAsync(async (req, res, next) => {
       return next(new AppError('Admins cannot change their own role', 400));
     }
 
-    const activeAdminCount = await User.countDocuments({
-      role: 'admin',
-      isActive: true,
-      _id: { $ne: user._id },
+    const hasOtherAdmins = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+      return activeAdminCount > 0;
     });
 
-    if (activeAdminCount === 0) {
+    if (!hasOtherAdmins) {
       return next(
         new AppError('Cannot demote the only active admin account', 400),
       );
@@ -249,6 +257,10 @@ const updateUserById = catchAsync(async (req, res, next) => {
         400,
       ),
     );
+  }
+
+  if (sanitizedPayload.password) {
+    user.passwordChangedAt = Date.now() - 1000;
   }
 
   Object.assign(user, sanitizedPayload);
@@ -276,24 +288,35 @@ const deleteUserById = catchAsync(async (req, res, next) => {
     return next(new AppError('User not found', 404));
   }
 
+  const deletedUserEmail = user.email;
+  const deletedUserName = user.name;
+
   if (user.role === 'admin') {
-    const activeAdminCount = await User.countDocuments({
-      role: 'admin',
-      isActive: true,
-      _id: { $ne: user._id },
+    const canDelete = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+
+      if (activeAdminCount === 0) {
+        return false;
+      }
+
+      await cleanupUserDependencies(targetId);
+      await User.findByIdAndDelete(targetId);
+      return true;
     });
 
-    if (activeAdminCount === 0) {
+    if (!canDelete) {
       return next(
         new AppError('Cannot delete the only active admin account', 400),
       );
     }
+  } else {
+    await cleanupUserDependencies(targetId);
+    await User.findByIdAndDelete(targetId);
   }
-
-  const deletedUserEmail = user.email;
-  const deletedUserName = user.name;
-
-  await User.findByIdAndDelete(targetId);
 
   sendSecurityAlertEmail({
     to: deletedUserEmail,
@@ -333,23 +356,34 @@ const deactivateUserById = catchAsync(async (req, res, next) => {
 
   // 3. Safety Guard: Cannot deactivate the only active admin account
   if (user.role === 'admin') {
-    const activeAdminCount = await User.countDocuments({
-      role: 'admin',
-      isActive: true,
-      _id: { $ne: user._id },
+    const canDeactivate = await withAdminLock(async () => {
+      const activeAdminCount = await User.countDocuments({
+        role: 'admin',
+        isActive: true,
+        _id: { $ne: user._id },
+      });
+
+      if (activeAdminCount === 0) {
+        return false;
+      }
+
+      user.isActive = false;
+      user.passwordChangedAt = Date.now();
+      await user.save({ validateBeforeSave: false });
+      return true;
     });
 
-    if (activeAdminCount === 0) {
+    if (!canDeactivate) {
       return next(
         new AppError('Cannot deactivate the only active admin account', 400),
       );
     }
+  } else {
+    // Deactivate safely and invalidate any existing JWT sessions
+    user.isActive = false;
+    user.passwordChangedAt = Date.now();
+    await user.save({ validateBeforeSave: false });
   }
-
-  // Deactivate safely and invalidate any existing JWT sessions
-  user.isActive = false;
-  user.passwordChangedAt = Date.now();
-  await user.save({ validateBeforeSave: false });
 
   sendSecurityAlertEmail({
     to: user.email,
