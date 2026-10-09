@@ -85,6 +85,15 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    authProvider: {
+      type: String,
+      enum: ['local', 'google'],
+      default: 'local',
+    },
+    googleId: {
+      type: String,
+      select: false,
+    },
     isActive: {
       type: Boolean,
       default: true,

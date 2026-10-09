@@ -4,6 +4,7 @@ const {
   login,
   userSignup,
   userLogin,
+  googleLogin,
   driverSignup,
   driverLogin,
   adminSignup,
@@ -23,6 +24,7 @@ const router = express.Router();
 // General Auth Routes
 router.post('/signup', signup);
 router.post('/login', login);
+router.post('/google', googleLogin);
 
 // Password Reset Routes (Email Code / Token Verification)
 router.post('/forgot-password', forgotPassword);
@@ -32,6 +34,7 @@ router.patch('/reset-password/:token', resetPassword);
 // User-Specific Auth Routes
 router.post('/user/signup', userSignup);
 router.post('/user/login', userLogin);
+router.post('/user/google', googleLogin);
 
 // Driver-Specific Auth Routes
 router.post('/driver/signup', driverSignup);
