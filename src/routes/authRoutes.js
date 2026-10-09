@@ -39,6 +39,7 @@ router.post('/user/google', googleLogin);
 // Driver-Specific Auth Routes
 router.post('/driver/signup', driverSignup);
 router.post('/driver/login', driverLogin);
+router.post('/driver/google', googleLogin);
 
 // Admin-Specific Auth Routes
 router.post('/admin/signup', adminSignup);

@@ -1102,6 +1102,7 @@ const googleLogin = catchAsync(async (req, res, next) => {
     googleId: bodyGoogleId,
     profileImage: bodyProfileImage,
     rememberMe,
+    role: bodyRole,
   } = req.body;
 
   let email = bodyEmail;
@@ -1136,6 +1137,10 @@ const googleLogin = catchAsync(async (req, res, next) => {
     );
   }
 
+  const isDriverRoute =
+    (req.originalUrl && req.originalUrl.includes('/driver/')) ||
+    (bodyRole && String(bodyRole).toLowerCase().trim() === 'driver');
+
   const normalizedEmail = email.toLowerCase().trim();
   let user = await User.findOne({ email: normalizedEmail }).select(
     '+password +isActive',
@@ -1146,6 +1151,15 @@ const googleLogin = catchAsync(async (req, res, next) => {
       return next(
         new AppError(
           'Your account is deactivated. Please contact support.',
+          403,
+        ),
+      );
+    }
+
+    if (isDriverRoute && user.role !== 'driver') {
+      return next(
+        new AppError(
+          'Account is not registered as a driver. Please use passenger login.',
           403,
         ),
       );
@@ -1169,13 +1183,15 @@ const googleLogin = catchAsync(async (req, res, next) => {
     }
   } else {
     // New Google user registration
+    const targetRole = isDriverRoute ? 'driver' : 'user';
+    const defaultName = isDriverRoute ? 'Transit Driver' : 'Transit User';
     const generatedPassword = `${crypto.randomBytes(16).toString('hex')}Aa1!`;
     user = await User.create({
-      name: name && name.trim().length > 0 ? name.trim() : 'Transit User',
+      name: name && name.trim().length > 0 ? name.trim() : defaultName,
       email: normalizedEmail,
       password: generatedPassword,
       passwordConfirm: generatedPassword,
-      role: 'user',
+      role: targetRole,
       authProvider: 'google',
       googleId: googleId || undefined,
       profileImage: profileImage || undefined,
@@ -1185,7 +1201,7 @@ const googleLogin = catchAsync(async (req, res, next) => {
       .sendWelcomeEmail({
         to: user.email,
         name: user.name,
-        role: 'user',
+        role: targetRole,
       })
       .catch(() => {});
   }
